@@ -32,6 +32,10 @@ export interface ThreadSummary {
   activeAt: number | null;
   updatedAt: number | null;
   hasLiveOwner: boolean;
+  latestModel: string | null;
+  latestReasoningEffort: string | null;
+  approvalPolicy: string | null;
+  sandboxMode: string | null;
 }
 
 export interface Message {
@@ -40,6 +44,14 @@ export interface Message {
   text: string;
   status: string | null;
   createdAt: number | null;
+  raw?: Record<string, unknown>;
+}
+
+export interface SendOptions {
+  model?: string;
+  reasoningEffort?: string;
+  approvalPolicy?: string;
+  sandboxMode?: string;
 }
 
 export interface ThreadDetail {

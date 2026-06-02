@@ -1,4 +1,4 @@
-import type { ServerStatus, ThreadDetail, ThreadSummary } from "./types";
+import type { SendOptions, ServerStatus, ThreadDetail, ThreadSummary } from "./types";
 
 export const API_BASE = import.meta.env.VITE_CODEX_SERVER_URL ?? "http://127.0.0.1:8765";
 
@@ -35,10 +35,10 @@ export async function getThreadDetail(conversationId: string): Promise<ThreadDet
   return requestJson<ThreadDetail>(`/api/threads/${encodeURIComponent(conversationId)}`);
 }
 
-export async function sendMessage(conversationId: string, text: string, confirmDangerFullAccess = false): Promise<unknown> {
+export async function sendMessage(conversationId: string, text: string, confirmDangerFullAccess = false, options: SendOptions = {}): Promise<unknown> {
   return requestJson(`/api/threads/${encodeURIComponent(conversationId)}/messages`, {
     method: "POST",
-    body: JSON.stringify({ text, confirmDangerFullAccess }),
+    body: JSON.stringify({ text, confirmDangerFullAccess, ...compactOptions(options) }),
   });
 }
 
@@ -48,5 +48,9 @@ export function websocketUrl(): string {
   url.pathname = "/api/events";
   url.search = "";
   return url.toString();
+}
+
+function compactOptions(options: SendOptions): SendOptions {
+  return Object.fromEntries(Object.entries(options).filter(([, value]) => value && value !== "inherit")) as SendOptions;
 }
 

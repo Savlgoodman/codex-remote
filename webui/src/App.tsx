@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { getStatus, getThreadDetail, getThreads, refreshThreads, sendMessage, websocketUrl } from "./api";
 import { Composer } from "./components/Composer";
 import { MessageView } from "./components/MessageView";
 import { StatusBar } from "./components/StatusBar";
 import { ThreadList } from "./components/ThreadList";
-import type { IpcStatus, Message, ServerEvent, ServerStatus, ThreadDetail, ThreadSummary } from "./types";
+import type { IpcStatus, Message, SendOptions, ServerEvent, ServerStatus, ThreadDetail, ThreadSummary } from "./types";
 
 const initialIpc: IpcStatus = {
   online: false,
@@ -28,6 +28,7 @@ export function App() {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [wsState, setWsState] = useState<"connecting" | "open" | "closed">("connecting");
+  const messageScrollRef = useRef<HTMLDivElement | null>(null);
 
   async function loadInitial() {
     try {
@@ -100,7 +101,10 @@ export function App() {
     setError(null);
     getThreadDetail(selectedId)
       .then((next) => {
-        if (!cancelled) setDetail(next);
+        if (!cancelled) {
+          setDetail(next);
+          setThreads((prev) => upsertThread(prev, next.summary));
+        }
       })
       .catch((exc) => {
         if (!cancelled) setError(exc instanceof Error ? exc.message : String(exc));
@@ -114,7 +118,10 @@ export function App() {
   }, [selectedId]);
 
   const selectedSummary = useMemo(
-    () => threads.find((thread) => thread.conversationId === selectedId) ?? detail?.summary ?? null,
+    () => {
+      if (detail?.summary.conversationId === selectedId) return detail.summary;
+      return threads.find((thread) => thread.conversationId === selectedId) ?? null;
+    },
     [threads, selectedId, detail],
   );
 
@@ -129,21 +136,23 @@ export function App() {
     }
   }
 
-  async function handleSend(text: string, confirmDangerFullAccess = false) {
+  async function handleSend(text: string, options: SendOptions = {}, confirmDangerFullAccess = false) {
     if (!selectedId) return;
     setError(null);
     try {
-      await sendMessage(selectedId, text, confirmDangerFullAccess);
+      await sendMessage(selectedId, text, confirmDangerFullAccess, options);
       const next = await getThreadDetail(selectedId);
       setDetail(next);
+      setThreads((prev) => upsertThread(prev, next.summary));
     } catch (exc) {
       const err = exc as Error & { data?: { error?: string; message?: string } };
       if (err.data?.error === "dangerFullAccess_requires_confirmation") {
         const confirmed = window.confirm(err.data.message ?? "该线程需要 dangerFullAccess 确认，继续发送？");
         if (confirmed) {
-          await sendMessage(selectedId, text, true);
+          await sendMessage(selectedId, text, true, options);
           const next = await getThreadDetail(selectedId);
           setDetail(next);
+          setThreads((prev) => upsertThread(prev, next.summary));
           return;
         }
       }
@@ -152,6 +161,12 @@ export function App() {
   }
 
   const messages: Message[] = detail?.messages ?? [];
+
+  useEffect(() => {
+    const node = messageScrollRef.current;
+    if (!node) return;
+    node.scrollTop = node.scrollHeight;
+  }, [selectedId, messages]);
 
   return (
     <div className="app-shell">
@@ -176,11 +191,17 @@ export function App() {
                 <div>
                   <h2>{selectedSummary.title}</h2>
                   <p>{selectedSummary.cwd || "No working directory"}</p>
+                  <div className="thread-settings-line">
+                    <span>{selectedSummary.latestModel ?? "model inherit"}</span>
+                    <span>{selectedSummary.latestReasoningEffort ?? "reasoning inherit"}</span>
+                    <span>{selectedSummary.approvalPolicy ?? "approval inherit"}</span>
+                    <span>{selectedSummary.sandboxMode ?? "sandbox inherit"}</span>
+                  </div>
                 </div>
                 <div className={`source-pill source-${selectedSummary.source}`}>{selectedSummary.source}</div>
               </header>
               {error ? <div className="error-bar">{error}</div> : null}
-              <div className="message-scroll">
+              <div className="message-scroll" ref={messageScrollRef}>
                 {loadingDetail && messages.length === 0 ? <div className="empty-state">Loading thread...</div> : null}
                 {messages.length === 0 && !loadingDetail ? <div className="empty-state">No messages loaded yet.</div> : null}
                 {messages.map((message) => (

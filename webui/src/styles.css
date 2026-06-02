@@ -257,6 +257,24 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.thread-settings-line {
+  align-items: center;
+  color: #69717d;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.thread-settings-line span {
+  background: #f4f6f8;
+  border: 1px solid #e0e4e8;
+  border-radius: 999px;
+  line-height: 1.2;
+  padding: 4px 7px;
+}
+
 .source-pill {
   border-radius: 999px;
   color: #ffffff;
@@ -333,6 +351,57 @@ textarea {
   background: #f1f1f4;
 }
 
+.message-tool {
+  border-color: #d8d3e7;
+}
+
+.message-tool .message-meta {
+  background: #f4f0fa;
+}
+
+.tool-body {
+  background: #ffffff;
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.tool-summary {
+  color: #303641;
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.tool-detail {
+  display: grid;
+  gap: 5px;
+}
+
+.tool-detail span {
+  color: #6b7280;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.tool-detail code {
+  background: #f7f8fa;
+  border: 1px solid #e0e4e8;
+  border-radius: 6px;
+  color: #27313d;
+  display: block;
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  max-height: 180px;
+  overflow: auto;
+  padding: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .composer {
   align-items: end;
   background: #ffffff;
@@ -355,6 +424,47 @@ textarea {
   color: #69717d;
   font-size: 12px;
   line-height: 1.2;
+}
+
+.composer-settings {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(140px, 1.3fr) repeat(3, minmax(120px, 1fr));
+  min-width: 0;
+}
+
+.composer-settings label {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.composer-settings span {
+  color: #69717d;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.composer-settings input,
+.composer-settings select {
+  background: #ffffff;
+  border: 1px solid #cfd6de;
+  border-radius: 6px;
+  color: #27313d;
+  font-size: 12px;
+  height: 30px;
+  min-width: 0;
+  outline: none;
+  padding: 0 8px;
+  width: 100%;
+}
+
+.composer-settings input:focus,
+.composer-settings select:focus {
+  border-color: #1e6bff;
+  box-shadow: 0 0 0 2px rgba(30, 107, 255, 0.1);
 }
 
 .composer textarea {
@@ -400,5 +510,9 @@ textarea {
   .sidebar {
     border-bottom: 1px solid #d9dee4;
     max-height: 38vh;
+  }
+
+  .composer-settings {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

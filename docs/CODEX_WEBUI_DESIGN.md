@@ -589,3 +589,100 @@ codex-webui = 历史浏览器 + live 观察器 + IPC owner 控制面板
 ```
 
 这样既能利用 SDK/app-server 做完整历史，又能利用 IPC 保持和 App/VSCode 的同步。等这条链路稳定后，再逐步做后台运行、审批、附件、命令输出、文件引用和更完整的 VSCode 风格渲染。
+
+## 统一发送路由流程
+
+当前发送模型采用一个统一后端接口：
+
+```text
+POST /api/threads/:conversationId/messages
+```
+
+前端只负责传入 `conversationId`、消息文本、模型选项、推理强度、审批策略、sandbox 权限等参数。后端根据全局 IPC 状态与会话级 live 状态自动选择转发方式。
+
+关键判断：
+
+- IPC 在线只表示 Codex App 或 VSCode 插件进程存在，不表示所有会话都 live。
+- 只有当前 conversationId 有 live owner / live snapshot 时，才走 IPC owner。
+- history-only 或 stale 会话即使 IPC 在线，也走 SDK resume。
+- IPC 断开时，所有 live 会话必须清空 live owner 标记，后续发送走 SDK。
+- IPC 恢复后，只有重新收到 snapshot/patches 的会话才升级为 live。
+- WebUI 不直接决定 IPC 或 SDK，只调用统一发送接口。
+
+### IPC 监测与会话状态
+
+```mermaid
+flowchart TD
+    A[后端启动 codex-server] --> B[启动 IPC 后台监测循环]
+    A --> C[启动 SDK 线程列表/详情读取能力]
+
+    B --> D{IPC 在线?}
+
+    D -->|否| E[标记 IPC offline]
+    E --> F[清空所有 live owner 标记<br/>live -> stale/history-only<br/>hasLiveOwner=false]
+    F --> G[继续循环重连 IPC]
+
+    D -->|是| H[标记 IPC online]
+    H --> I[持续监听 IPC broadcast]
+    I --> J{收到 thread-stream-state-changed?}
+
+    J -->|是| K[更新该 conversation 的 live snapshot]
+    K --> L[标记该会话 live<br/>hasLiveOwner=true]
+    L --> M[合并 thread summary/detail<br/>广播给 WebUI]
+
+    J -->|否| N[保持监听]
+    N --> D
+
+    G --> D
+```
+
+### 统一消息发送
+
+```mermaid
+flowchart TD
+    A[WebUI 调用统一发送接口] --> B[POST /api/threads/:id/messages]
+    B --> C[参数: conversationId, text,<br/>model, reasoningEffort,<br/>approvalPolicy, sandboxMode]
+
+    C --> D[后端读取当前 IPC 状态和会话 summary]
+    D --> E{IPC 在线?}
+
+    E -->|否| SDK[走 SDK resume 发送]
+    E -->|是| F{该会话 live?<br/>hasLiveOwner=true}
+
+    F -->|否| SDK
+    F -->|是| IPC[走 IPC owner 发送]
+
+    IPC --> G[构造 turnStartParams]
+    G --> H[合并模型/推理/权限选项]
+    H --> I{dangerFullAccess?}
+    I -->|未确认| J[返回二次确认错误]
+    I -->|已确认或非危险| K[IPC request: thread-follower-start-turn]
+    K --> L[IPC snapshot/patches 继续更新 WebUI]
+
+    SDK --> M[SDK thread_resume]
+    M --> N[thread.turn stream]
+    N --> O[合并模型/推理/权限选项]
+    O --> P{dangerFullAccess?}
+    P -->|未确认| J
+    P -->|已确认或非危险| Q[SDK 流式读取并发布 thread.snapshot]
+    Q --> R[WebUI 更新消息区]
+```
+
+### 路由决策表
+
+| IPC 状态 | 会话状态 | 发送方式 |
+|---|---|---|
+| 无 IPC | 任意会话 | SDK resume |
+| 有 IPC | 非 live / history-only / stale | SDK resume |
+| 有 IPC | live / `hasLiveOwner=true` | IPC owner |
+| IPC 中途断开 | 原 live 会话 | 清空 live owner 标记，后续走 SDK |
+| IPC 后续恢复 | 新收到 live snapshot 的会话 | 重新标记 live，后续走 IPC |
+
+最终原则：
+
+```text
+send(conversationId, text, options)
+  -> backend checks ipc.online + summary.hasLiveOwner
+  -> live owner: IPC request
+  -> otherwise: SDK resume
+```

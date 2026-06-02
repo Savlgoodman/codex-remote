@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from .control_service import ControlError, ControlService
 from .ipc_client import IpcClient
-from .rollout_reader import RolloutReader
+from .rollout_reader import RolloutReader, enrich_detail_from_rollout
 from .sdk_reader import SdkReader
 from .state_store import StateStore
 
@@ -29,6 +29,10 @@ CONTROL_ENABLED = os.environ.get("CODEX_WEBUI_ENABLE_CONTROL", "1") not in {"0",
 class SendMessageRequest(BaseModel):
     text: str
     confirmDangerFullAccess: bool = False
+    model: str | None = None
+    reasoningEffort: str | None = None
+    approvalPolicy: str | None = None
+    sandboxMode: str | None = None
 
 
 async def refresh_sdk_threads(limit: int = 100) -> None:
@@ -84,11 +88,13 @@ async def api_threads(limit: int = 100) -> dict[str, Any]:
 @app.get("/api/threads/{conversation_id}")
 async def api_thread_detail(conversation_id: str, raw: bool = False) -> dict[str, Any]:
     detail = await sdk_reader.read_thread(conversation_id)
-    if detail is None:
-        snapshot = store.get_snapshot(conversation_id)
-        rollout_path = None
-        if snapshot is not None and isinstance(snapshot.state, dict):
-            rollout_path = snapshot.state.get("rolloutPath")
+    snapshot = store.get_snapshot(conversation_id)
+    rollout_path = None
+    if snapshot is not None and isinstance(snapshot.state, dict):
+        rollout_path = snapshot.state.get("rolloutPath")
+    if detail is not None:
+        detail = await asyncio.to_thread(enrich_detail_from_rollout, detail, rollout_path)
+    else:
         detail = await rollout_reader.read_thread(conversation_id, rollout_path)
     if detail is not None:
         store.upsert_detail(detail)
@@ -115,6 +121,12 @@ async def api_send_message(conversation_id: str, request: SendMessageRequest) ->
             conversation_id,
             request.text,
             confirm_danger_full_access=request.confirmDangerFullAccess,
+            options={
+                "model": request.model,
+                "reasoningEffort": request.reasoningEffort,
+                "approvalPolicy": request.approvalPolicy,
+                "sandboxMode": request.sandboxMode,
+            },
         )
     except ControlError as exc:
         return JSONResponse(status_code=409, content={"ok": False, "error": exc.code, "message": exc.message})

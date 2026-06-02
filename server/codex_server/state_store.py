@@ -5,7 +5,7 @@ import threading
 import time
 from typing import Any
 
-from .models import IpcSnapshot, IpcStatus, Message, ThreadDetail, ThreadSummary
+from .models import IpcSnapshot, IpcStatus, Message, ThreadDetail, ThreadSummary, lightweight_patch_list
 from .normalizer import apply_patch_list, detail_from_turns, summary_from_ipc_state
 
 
@@ -101,7 +101,7 @@ class StateStore:
                     self._details[conversation_id] = self._merge_detail(self._details.get(conversation_id), detail)
             event_summary = self._summaries[conversation_id].to_json()
             event_detail = self._details.get(conversation_id)
-        self.publish({"type": "thread.patch", "conversationId": conversation_id, "summary": event_summary, "patches": patches or []})
+        self.publish({"type": "thread.patch", "conversationId": conversation_id, "summary": event_summary, "patches": lightweight_patch_list(patches)})
         if event_detail is not None:
             self.publish(
                 {
@@ -153,15 +153,39 @@ class StateStore:
         if incoming.source == "live":
             incoming.active_at = incoming.active_at or existing.active_at
             return incoming
-        if existing.source in {"live", "stale"}:
+        if existing.source == "live" and existing.has_live_owner:
             existing.title = existing.title if existing.title != "(untitled)" else incoming.title
             existing.cwd = existing.cwd or incoming.cwd
             existing.active_at = max(existing.active_at or 0, incoming.active_at or 0) or None
             existing.updated_at = max(existing.updated_at or 0, incoming.updated_at or 0) or None
             if not existing.latest_item_preview:
                 existing.latest_item_preview = incoming.latest_item_preview
+            self._merge_settings(existing, incoming)
+            return existing
+        if existing.source == "stale":
+            existing.title = existing.title if existing.title != "(untitled)" else incoming.title
+            existing.cwd = existing.cwd or incoming.cwd
+            existing.runtime_status = incoming.runtime_status
+            existing.latest_turn_status = incoming.latest_turn_status
+            existing.latest_item_preview = incoming.latest_item_preview or existing.latest_item_preview
+            existing.active_at = max(existing.active_at or 0, incoming.active_at or 0) or None
+            existing.updated_at = max(existing.updated_at or 0, incoming.updated_at or 0) or None
+            existing.has_live_owner = False
+            self._merge_settings(existing, incoming)
+            return existing
+        if existing.source == "history-only":
+            if (incoming.active_at or 0) >= (existing.active_at or 0):
+                self._merge_settings(incoming, existing)
+                return incoming
+            self._merge_settings(existing, incoming)
             return existing
         return incoming if (incoming.active_at or 0) >= (existing.active_at or 0) else existing
+
+    def _merge_settings(self, existing: ThreadSummary, incoming: ThreadSummary) -> None:
+        existing.latest_model = incoming.latest_model or existing.latest_model
+        existing.latest_reasoning_effort = incoming.latest_reasoning_effort or existing.latest_reasoning_effort
+        existing.approval_policy = incoming.approval_policy or existing.approval_policy
+        existing.sandbox_mode = incoming.sandbox_mode or existing.sandbox_mode
 
     def _merge_detail(self, existing: ThreadDetail | None, incoming: ThreadDetail) -> ThreadDetail:
         if existing is None:
