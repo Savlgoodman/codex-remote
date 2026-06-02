@@ -46,12 +46,36 @@ class SdkReader:
     async def read_thread(self, conversation_id: str) -> ThreadDetail | None:
         return await asyncio.to_thread(self._read_thread_sync, conversation_id)
 
+    async def send_message(self, conversation_id: str, text: str) -> ThreadDetail | None:
+        return await asyncio.to_thread(self._send_message_sync, conversation_id, text)
+
     def _read_thread_sync(self, conversation_id: str) -> ThreadDetail | None:
         if self.Codex is None or self.CodexConfig is None:
             return None
         try:
             with self.Codex(config=self.CodexConfig()) as codex:
                 thread = codex.thread_resume(conversation_id)
+                response = thread.read(include_turns=True)
+                data = sdk_model_to_json(response)
+        except Exception as exc:
+            self.last_error = str(exc)
+            return None
+        thread_data: dict[str, Any] = {}
+        if isinstance(data, dict):
+            thread_data = data.get("thread") if isinstance(data.get("thread"), dict) else data
+        summary = summary_from_sdk_thread({**thread_data, "id": thread_data.get("id") or conversation_id})
+        turns = thread_data.get("turns") if isinstance(thread_data.get("turns"), list) else []
+        pagination = thread_data.get("turnsPagination") if isinstance(thread_data.get("turnsPagination"), dict) else None
+        return detail_from_turns(summary, turns, pagination)
+
+    def _send_message_sync(self, conversation_id: str, text: str) -> ThreadDetail | None:
+        if self.Codex is None or self.CodexConfig is None:
+            self.last_error = "openai-codex SDK is unavailable"
+            return None
+        try:
+            with self.Codex(config=self.CodexConfig()) as codex:
+                thread = codex.thread_resume(conversation_id)
+                thread.run(text)
                 response = thread.read(include_turns=True)
                 data = sdk_model_to_json(response)
         except Exception as exc:

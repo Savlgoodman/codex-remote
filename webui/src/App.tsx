@@ -134,12 +134,16 @@ export function App() {
     setError(null);
     try {
       await sendMessage(selectedId, text, confirmDangerFullAccess);
+      const next = await getThreadDetail(selectedId);
+      setDetail(next);
     } catch (exc) {
       const err = exc as Error & { data?: { error?: string; message?: string } };
       if (err.data?.error === "dangerFullAccess_requires_confirmation") {
         const confirmed = window.confirm(err.data.message ?? "该线程需要 dangerFullAccess 确认，继续发送？");
         if (confirmed) {
           await sendMessage(selectedId, text, true);
+          const next = await getThreadDetail(selectedId);
+          setDetail(next);
           return;
         }
       }

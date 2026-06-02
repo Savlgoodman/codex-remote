@@ -12,13 +12,22 @@ interface Props {
 export function Composer({ summary, ipcOnline, controlEnabled, onSend }: Props) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const willUseIpc = ipcOnline && summary.hasLiveOwner;
+  const sendMode = willUseIpc ? "IPC owner" : "SDK resume";
   const disabledReason = useMemo(() => {
     if (!controlEnabled) return "Control disabled";
-    if (!ipcOnline) return "IPC offline";
-    if (!summary.hasLiveOwner) return "No live owner";
-    if (summary.runtimeStatus !== "idle" && summary.latestTurnStatus !== "completed" && summary.latestTurnStatus !== "-") return "Thread busy";
+    if (
+      willUseIpc &&
+      summary.runtimeStatus !== "idle" &&
+      summary.runtimeStatus !== "unknown" &&
+      summary.latestTurnStatus !== "completed" &&
+      summary.latestTurnStatus !== "-" &&
+      summary.latestTurnStatus !== "failed"
+    ) {
+      return "Thread busy";
+    }
     return null;
-  }, [controlEnabled, ipcOnline, summary]);
+  }, [controlEnabled, summary, willUseIpc]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -35,12 +44,15 @@ export function Composer({ summary, ipcOnline, controlEnabled, onSend }: Props) 
 
   return (
     <form className="composer" onSubmit={submit}>
-      <textarea
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        placeholder={disabledReason ?? "Send a message through the App/VSCode IPC owner"}
-        disabled={Boolean(disabledReason)}
-      />
+      <div className="composer-input">
+        <div className="composer-mode">{disabledReason ?? `Send via ${sendMode}`}</div>
+        <textarea
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          placeholder={disabledReason ?? "Send a message"}
+          disabled={Boolean(disabledReason)}
+        />
+      </div>
       <button className="send-button" disabled={Boolean(disabledReason) || !text.trim() || sending} title={disabledReason ?? "发送"}>
         <Send size={17} />
       </button>

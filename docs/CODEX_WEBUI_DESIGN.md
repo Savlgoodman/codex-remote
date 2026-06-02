@@ -467,13 +467,27 @@ SSE 也可行，但第一版如果用 FastAPI，WebSocket 更自然；若只做�
 
 ```text
 1. 前端 POST /api/threads/{conversationId}/messages。
-2. ControlService 执行 preflight。
-3. IPC 在线且 owner 可用时，构造 thread-follower-start-turn。
-4. IpcClient 发送 request。
-5. App/VSCode owner 真正调用自己的 app-server 开始 turn。
-6. 后续输出通过 IPC patches 回到 codex-server。
-7. codex-server 转成 WebSocket 事件推给前端。
+2. ControlService 执行 auto route preflight。
+3. 如果该 conversationId 当前有 live IPC owner：
+   - 构造 thread-follower-start-turn。
+   - IpcClient 发送 request。
+   - App/VSCode owner 真正调用自己的 app-server 开始 turn。
+   - 后续输出通过 IPC patches 回到 codex-server。
+4. 如果该 conversationId 是 history-only 或 stale：
+   - SdkControlService 调用 SDK thread_resume。
+   - 通过 SDK turn/stream 后台继续对话。
+   - codex-server 将 SDK stream 转成 WebSocket 事件推给前端。
+5. 如果用户之后在 App/VSCode 中打开该线程：
+   - App/VSCode 会从 app-server / 本地历史重新读取上下文。
+   - codex-server 收到 IPC snapshot 后，将线程升级为 live。
 ```
+
+发送路由原则：
+
+- `SDK / app-server` 是会话事实源和后台执行层。
+- `codex-ipc` 是 live UI owner 同步与控制层。
+- 不伪造 IPC broadcast 来唤醒 history-only 线程。
+- live 且 busy 的线程不要退回 SDK 并发推进；后续应实现 steer、interrupt 或队列。
 
 ### IPC 断线 / 重连
 
@@ -552,7 +566,7 @@ codex-remote/
 4. 后端 `main.py`：FastAPI，先实现 `GET /api/status`、`GET /api/threads`、WebSocket `/api/events`。
 5. 后端 `sdk_reader.py`：接入 SDK 列线程和读完整历史。
 6. 前端 `codex-webui`：线程列表 + 详情页 + WebSocket live 更新。
-7. 后端 `control_service.py`：实现 `POST /messages`，只允许 live owner 线程发送。
+7. 后端 `control_service.py`：实现 `POST /messages` auto route，live owner 走 IPC，history-only/stale 走 SDK resume。
 8. 前端 Composer：支持发送、错误提示、IPC 离线禁用。
 9. 增加 `RolloutReader` fallback。
 10. 增加审计日志和 token。

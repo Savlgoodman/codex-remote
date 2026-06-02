@@ -1138,3 +1138,60 @@ Codex App:
 ```
 
 因此，远控 app 的验证方向已经从“SDK 能不能读线程”转向“本机 bridge 能不能稳定消费 `codex-ipc` 广播并安全发送 follower request”。
+
+## 2026-06-02 追加结论：会话事实源与发送路由
+
+进一步分析 VSCode 插件和 activation probe 后，当前模型更新如下：
+
+```text
+app-server / SDK / 本地持久化:
+  是会话事实源。
+  Codex App / VSCode 每次激活历史线程时，会通过自己的 app-server 重新 read/resume 上下文。
+
+codex-ipc:
+  是 live UI owner 的同步与控制通道。
+  它广播当前 UI 已加载的 snapshot/patches，也能把 follower request 转交给 owner。
+  它不是后台事实库，也不负责保存或主动唤醒所有历史会话。
+```
+
+VSCode webview 中激活历史线程的内部入口是 `maybe-resume-conversation`，实际会调用：
+
+```text
+thread/read
+thread/turns/list 或 thread/read includeTurns=true
+thread/resume
+```
+
+resume 成功后，VSCode 会：
+
+```text
+resumeState = resumed
+setConversationStreamRole(role = owner)
+markConversationStreaming(conversationId)
+broadcastConversationSnapshot(conversationId)
+```
+
+这说明手动在 App/VSCode 中打开 history-only 线程后，它会自然变成 live，并通过 `thread-stream-state-changed` 广播完整 snapshot。远控端不需要伪造 IPC broadcast 来“唤醒”它。
+
+新的发送路由应采用 auto 策略：
+
+```text
+发送消息到 conversationId:
+  1. 先检查 StateStore 是否有该 conversationId 的 live IPC snapshot / owner。
+  2. 如果存在 live owner 且线程允许 start-turn：
+       走 IPC request: thread-follower-start-turn。
+       后续输出由 IPC snapshot/patches 同步。
+  3. 如果不存在 live owner，即 history-only 或 stale：
+       走 SDK thread_resume(...).turn(...) / run(...)。
+       后续输出由本机 bridge 自己消费 SDK stream，并推给 Web UI。
+  4. 如果用户之后在 App/VSCode 中打开该线程：
+       App/VSCode 会从 app-server / 本地历史重新读取上下文。
+       bridge 收到 IPC snapshot 后，将该线程升级为 live。
+```
+
+重要约束：
+
+- 不建议外部进程伪造 `thread-stream-state-changed` 或 `thread-follower-start-turn` broadcast。
+- `thread-follower-start-turn` request 需要已有 owner 能通过 `thread-role` 判定；history-only 未被 UI resume 前通常不会有 owner。
+- live 且 busy 的线程不应退回 SDK 并发推进；应优先考虑 steer、interrupt、排队或提示用户。
+- SDK 续聊不是“绕过”事实源，而是使用同一类 app-server 会话事实源进行后台 turn；只是它不实时驱动当前 App/VSCode UI。

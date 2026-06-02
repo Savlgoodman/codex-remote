@@ -6,6 +6,7 @@ from typing import Any
 from .ipc_client import IpcClient
 from .models import ThreadSummary
 from .normalizer import latest_turn
+from .sdk_reader import SdkReader
 from .state_store import StateStore
 
 
@@ -17,16 +18,25 @@ class ControlError(Exception):
 
 
 class ControlService:
-    def __init__(self, store: StateStore, ipc: IpcClient):
+    def __init__(self, store: StateStore, ipc: IpcClient, sdk: SdkReader):
         self.store = store
         self.ipc = ipc
+        self.sdk = sdk
 
     async def send_message(self, conversation_id: str, text: str, *, confirm_danger_full_access: bool = False) -> dict[str, Any]:
         summary = self.store.get_summary(conversation_id)
-        if not self.ipc.status.online:
-            raise ControlError("ipc_offline", "Codex App / VSCode 插件未运行，无法通过 UI owner 发送。")
-        if summary is None or not summary.has_live_owner:
-            raise ControlError("owner_not_found", "当前线程没有可用的 App/VSCode owner。")
+        if self.ipc.status.online and summary is not None and summary.has_live_owner:
+            return await self.send_message_via_ipc(conversation_id, text, summary, confirm_danger_full_access=confirm_danger_full_access)
+        return await self.send_message_via_sdk(conversation_id, text)
+
+    async def send_message_via_ipc(
+        self,
+        conversation_id: str,
+        text: str,
+        summary: ThreadSummary,
+        *,
+        confirm_danger_full_access: bool = False,
+    ) -> dict[str, Any]:
         if summary.runtime_status not in {"idle", "unknown"} and summary.latest_turn_status not in {"completed", "-", "failed"}:
             raise ControlError("thread_busy", "当前线程正在运行，普通 start-turn 暂不可用。")
         params = self.build_turn_start_params(conversation_id, text, summary)
@@ -40,6 +50,24 @@ class ControlService:
             timeout=45,
         )
         return {"ok": True, "mode": "ipc-owner", "ipcResponse": response}
+
+    async def send_message_via_sdk(self, conversation_id: str, text: str) -> dict[str, Any]:
+        if not self.sdk.available:
+            raise ControlError("sdk_unavailable", f"openai-codex SDK 不可用：{self.sdk.last_error or 'unknown error'}")
+        detail = await self.sdk.send_message(conversation_id, text)
+        if detail is None:
+            raise ControlError("sdk_send_failed", self.sdk.last_error or "SDK resume 发送失败。")
+        self.store.upsert_detail(detail)
+        self.store.publish(
+            {
+                "type": "thread.snapshot",
+                "conversationId": conversation_id,
+                "summary": detail.summary.to_json(),
+                "messages": [message.to_json() for message in detail.messages],
+            }
+        )
+        self.store.publish({"type": "threads.changed", "threads": [item.to_json() for item in self.store.list_threads()]})
+        return {"ok": True, "mode": "sdk-background"}
 
     def build_turn_start_params(self, conversation_id: str, text: str, summary: ThreadSummary) -> dict[str, Any]:
         snapshot = self.store.get_snapshot(conversation_id)

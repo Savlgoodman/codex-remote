@@ -22,7 +22,7 @@ store = StateStore()
 sdk_reader = SdkReader()
 rollout_reader = RolloutReader()
 ipc_client = IpcClient(on_message=store.handle_ipc_message, on_status=store.set_ipc_status)
-control_service = ControlService(store, ipc_client)
+control_service = ControlService(store, ipc_client, sdk_reader)
 CONTROL_ENABLED = os.environ.get("CODEX_WEBUI_ENABLE_CONTROL", "1") not in {"0", "false", "False"}
 
 

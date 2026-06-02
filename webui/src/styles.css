@@ -11,7 +11,9 @@
 }
 
 body {
+  height: 100vh;
   margin: 0;
+  overflow: hidden;
 }
 
 button,
@@ -23,6 +25,7 @@ textarea {
   display: grid;
   grid-template-rows: 42px minmax(0, 1fr);
   height: 100vh;
+  min-height: 0;
 }
 
 .status-bar {
@@ -75,7 +78,9 @@ textarea {
 .workspace {
   display: grid;
   grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  height: calc(100vh - 42px);
   min-height: 0;
+  overflow: hidden;
 }
 
 .sidebar {
@@ -83,7 +88,11 @@ textarea {
   border-right: 1px solid #d9dee4;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  max-height: calc(100vh - 42px);
+  min-height: 0;
   min-width: 0;
+  overflow: hidden;
 }
 
 .sidebar-head {
@@ -125,8 +134,10 @@ textarea {
 }
 
 .thread-list {
+  min-height: 0;
   overflow: auto;
   padding: 10px;
+  scrollbar-gutter: stable;
 }
 
 .thread-group + .thread-group {
@@ -216,7 +227,10 @@ textarea {
 .detail-pane {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
+  height: 100%;
+  min-height: 0;
   min-width: 0;
+  overflow: hidden;
 }
 
 .thread-header {
@@ -225,6 +239,7 @@ textarea {
   border-bottom: 1px solid #d9dee4;
   display: flex;
   gap: 16px;
+  grid-row: 1;
   justify-content: space-between;
   padding: 16px 20px;
 }
@@ -256,12 +271,17 @@ textarea {
   border-bottom: 1px solid #f1c4c4;
   color: #9c2222;
   font-size: 13px;
+  grid-row: 2;
   padding: 10px 20px;
 }
 
 .message-scroll {
+  grid-row: 3;
+  min-height: 0;
   overflow: auto;
   padding: 18px 22px;
+  scroll-behavior: smooth;
+  scrollbar-gutter: stable;
 }
 
 .message {
@@ -319,17 +339,33 @@ textarea {
   border-top: 1px solid #d9dee4;
   display: grid;
   gap: 10px;
+  grid-row: 4;
   grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 96px;
   padding: 12px 16px;
+}
+
+.composer-input {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.composer-mode {
+  color: #69717d;
+  font-size: 12px;
+  line-height: 1.2;
 }
 
 .composer textarea {
   border: 1px solid #cfd6de;
   border-radius: 7px;
+  max-height: 28vh;
   min-height: 58px;
   outline: none;
   padding: 10px 11px;
   resize: vertical;
+  width: 100%;
 }
 
 .composer textarea:focus {
@@ -351,11 +387,18 @@ textarea {
 }
 
 @media (max-width: 840px) {
+  .app-shell {
+    height: 100dvh;
+  }
+
   .workspace {
     grid-template-columns: 1fr;
+    grid-template-rows: minmax(180px, 38vh) minmax(0, 1fr);
+    height: calc(100dvh - 42px);
   }
 
   .sidebar {
+    border-bottom: 1px solid #d9dee4;
     max-height: 38vh;
   }
 }
