@@ -35,6 +35,8 @@ target/
 *.seed
 *.tmp
 *.temp
+activation-probe*.jsonl
+script/activation-probe*.jsonl
 
 # OS files
 .DS_Store
