@@ -160,9 +160,10 @@ def get_patch_parent(root: Any, path: list[Any]) -> tuple[Any, Any] | None:
     current = root
     for part in path[:-1]:
         if isinstance(current, list):
-            if not isinstance(part, int) or part < 0 or part >= len(current):
+            index = _list_index(part)
+            if index is None or index < 0 or index >= len(current):
                 return None
-            current = current[part]
+            current = current[index]
             continue
         if isinstance(current, dict):
             if part not in current:
@@ -176,13 +177,13 @@ def get_patch_parent(root: Any, path: list[Any]) -> tuple[Any, Any] | None:
 def apply_patch_list(state: dict[str, Any] | None, patches: Any) -> dict[str, Any] | None:
     if not isinstance(state, dict) or not isinstance(patches, list):
         return state
-    next_state: Any = deepcopy(state)
+    next_state: Any = state
     for patch in patches:
         if not isinstance(patch, dict):
             continue
         op = patch.get("op")
-        path = patch.get("path")
-        if not isinstance(path, list):
+        path = _patch_path_parts(patch.get("path"))
+        if path is None:
             continue
         if not path:
             if op in {"add", "replace"} and isinstance(patch.get("value"), dict):
@@ -193,8 +194,8 @@ def apply_patch_list(state: dict[str, Any] | None, patches: Any) -> dict[str, An
             continue
         parent, key = parent_pair
         if isinstance(parent, list):
-            index = len(parent) if key == "-" else key
-            if not isinstance(index, int):
+            index = len(parent) if key == "-" else _list_index(key)
+            if index is None:
                 continue
             if op == "add" and 0 <= index <= len(parent):
                 parent.insert(index, deepcopy(patch.get("value")))
@@ -209,6 +210,30 @@ def apply_patch_list(state: dict[str, Any] | None, patches: Any) -> dict[str, An
             elif op == "remove":
                 parent.pop(key, None)
     return next_state if isinstance(next_state, dict) else state
+
+
+def _patch_path_parts(path: Any) -> list[Any] | None:
+    if isinstance(path, list):
+        return path
+    if not isinstance(path, str):
+        return None
+    if path == "":
+        return []
+    if not path.startswith("/"):
+        return None
+    parts: list[Any] = []
+    for part in path[1:].split("/"):
+        unescaped = part.replace("~1", "/").replace("~0", "~")
+        parts.append(int(unescaped) if unescaped.isdecimal() else unescaped)
+    return parts
+
+
+def _list_index(value: Any) -> int | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdecimal():
+        return int(value)
+    return None
 
 
 def active_time_from_state(state: dict[str, Any] | None, fallback: float | None = None) -> float | None:

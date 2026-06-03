@@ -5,7 +5,7 @@ import time
 from dataclasses import replace
 from typing import Any, Callable
 
-from .models import Message, ThreadDetail, ThreadSummary
+from .models import Message, MessageOptions, ThreadDetail, ThreadSummary
 from .normalizer import compact_text, detail_from_turns, message_from_item, sdk_model_to_json, summary_from_sdk_thread
 
 
@@ -56,7 +56,7 @@ class SdkReader:
         conversation_id: str,
         text: str,
         on_update: StreamUpdate | None = None,
-        options: dict[str, Any] | None = None,
+        options: MessageOptions | None = None,
     ) -> ThreadDetail | None:
         return await asyncio.to_thread(self._send_message_sync, conversation_id, text, on_update, options)
 
@@ -84,7 +84,7 @@ class SdkReader:
         conversation_id: str,
         text: str,
         on_update: StreamUpdate | None = None,
-        options: dict[str, Any] | None = None,
+        options: MessageOptions | None = None,
     ) -> ThreadDetail | None:
         if self.Codex is None or self.CodexConfig is None:
             self.last_error = "openai-codex SDK is unavailable"
@@ -112,14 +112,14 @@ class SdkReader:
             return None
         return self._detail_from_thread_read(conversation_id, sdk_model_to_json(response))
 
-    def _sdk_turn_kwargs(self, options: dict[str, Any] | None) -> dict[str, Any]:
+    def _sdk_turn_kwargs(self, options: MessageOptions | None) -> dict[str, Any]:
         if not options:
             return {}
         kwargs: dict[str, Any] = {}
-        model = _clean_option(options.get("model"))
-        effort = _clean_option(options.get("reasoningEffort"))
-        approval_policy = _clean_option(options.get("approvalPolicy"))
-        sandbox_mode = _clean_option(options.get("sandboxMode"))
+        model = options.model
+        effort = options.reasoning_effort
+        approval_policy = options.approval_policy
+        sandbox_mode = options.sandbox_mode
         if model:
             kwargs["model"] = model
         if effort:

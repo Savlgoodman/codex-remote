@@ -5,8 +5,11 @@ import threading
 import time
 from typing import Any
 
-from .models import IpcSnapshot, IpcStatus, Message, ThreadDetail, ThreadSummary, lightweight_patch_list
+from .models import IpcSnapshot, IpcStatus, Message, ThreadDetail, ThreadSummary
 from .normalizer import apply_patch_list, detail_from_turns, summary_from_ipc_state
+
+
+SNAPSHOT_MIN_INTERVAL_SECONDS = 30.0
 
 
 class StateStore:
@@ -16,6 +19,8 @@ class StateStore:
         self._summaries: dict[str, ThreadSummary] = {}
         self._details: dict[str, ThreadDetail] = {}
         self._snapshots: dict[str, IpcSnapshot] = {}
+        self._message_signatures: dict[str, dict[str, tuple[str | None, int, str]]] = {}
+        self._last_snapshot_published_at: dict[str, float] = {}
         self._subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
         self._loop: asyncio.AbstractEventLoop | None = None
 
@@ -51,13 +56,16 @@ class StateStore:
         with self._lock:
             was_online = self.ipc_status.online
             self.ipc_status = status
+            stale_summaries: list[dict[str, Any]] = []
             if was_online and not status.online:
                 for summary in self._summaries.values():
                     if summary.source == "live":
                         summary.source = "stale"
                         summary.has_live_owner = False
-        self.publish({"type": "ipc.status", **status.to_json()})
-        self.publish({"type": "threads.changed", "threads": [item.to_json() for item in self.list_threads()]})
+                        stale_summaries.append(summary.to_json())
+        self.publish({"type": "ipc.status", "version": 1, **status.to_json()})
+        for summary in stale_summaries:
+            self.publish({"type": "thread.summary", "version": 1, "conversationId": summary["conversationId"], "summary": summary})
 
     def handle_ipc_message(self, message: dict[str, Any]) -> None:
         if message.get("type") != "broadcast":
@@ -101,17 +109,41 @@ class StateStore:
                     self._details[conversation_id] = self._merge_detail(self._details.get(conversation_id), detail)
             event_summary = self._summaries[conversation_id].to_json()
             event_detail = self._details.get(conversation_id)
-        self.publish({"type": "thread.patch", "conversationId": conversation_id, "summary": event_summary, "patches": lightweight_patch_list(patches)})
-        if event_detail is not None:
+            message_upserts: list[dict[str, Any]] = []
+            snapshot_messages = None
+            if event_detail is not None:
+                previous_signatures = self._message_signatures.get(conversation_id, {})
+                next_signatures = _message_signatures_by_id(event_detail.messages)
+                self._message_signatures[conversation_id] = next_signatures
+                changed_ids = [
+                    message.id
+                    for message in event_detail.messages
+                    if next_signatures.get(message.id) != previous_signatures.get(message.id)
+                ]
+                message_upserts = [message.to_json() for message in event_detail.messages if message.id in changed_ids]
+                last_snapshot_at = self._last_snapshot_published_at.get(conversation_id, 0)
+                should_publish_snapshot = (
+                    (previous_signatures == {} and bool(event_detail.messages))
+                    or len(changed_ids) > 8
+                    or now - last_snapshot_at >= SNAPSHOT_MIN_INTERVAL_SECONDS
+                )
+                if should_publish_snapshot:
+                    self._last_snapshot_published_at[conversation_id] = now
+                    snapshot_messages = [message.to_json() for message in event_detail.messages]
+        self.publish({"type": "thread.summary", "version": 1, "conversationId": conversation_id, "summary": event_summary})
+        for message in message_upserts:
+            self.publish({"type": "thread.message.upsert", "version": 1, "conversationId": conversation_id, "message": message})
+        if snapshot_messages is not None:
             self.publish(
                 {
                     "type": "thread.snapshot",
+                    "version": 1,
+                    "reason": "initial_or_periodic",
                     "conversationId": conversation_id,
                     "summary": event_summary,
-                    "messages": [message.to_json() for message in event_detail.messages],
+                    "messages": snapshot_messages,
                 }
             )
-        self.publish({"type": "threads.changed", "threads": [item.to_json() for item in self.list_threads()]})
 
     def upsert_history_summary(self, summary: ThreadSummary) -> None:
         if not summary.conversation_id:
@@ -129,6 +161,7 @@ class StateStore:
             self._summaries[conversation_id] = self._merge_summary(existing_summary, detail.summary)
             detail.summary = self._summaries[conversation_id]
             self._details[conversation_id] = self._merge_detail(self._details.get(conversation_id), detail)
+            self._message_signatures[conversation_id] = _message_signatures_by_id(self._details[conversation_id].messages)
 
     def list_threads(self) -> list[ThreadSummary]:
         with self._lock:
@@ -198,4 +231,8 @@ class StateStore:
     def messages_for(self, conversation_id: str) -> list[Message]:
         detail = self.get_detail(conversation_id)
         return detail.messages if detail is not None else []
+
+
+def _message_signatures_by_id(messages: list[Message]) -> dict[str, tuple[str | None, int, str]]:
+    return {message.id: (message.status, len(message.text), message.text[-80:]) for message in messages}
 

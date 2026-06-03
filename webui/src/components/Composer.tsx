@@ -17,12 +17,11 @@ export function Composer({ summary, ipcOnline, controlEnabled, onSend }: Props) 
   const [approvalPolicy, setApprovalPolicy] = useState("inherit");
   const [sandboxMode, setSandboxMode] = useState("inherit");
   const [dirtySettings, setDirtySettings] = useState(false);
-  const willUseIpc = ipcOnline && summary.hasLiveOwner;
-  const sendMode = willUseIpc ? "IPC owner" : "SDK resume";
+  const liveOwnerReady = ipcOnline && summary.hasLiveOwner;
   const disabledReason = useMemo(() => {
     if (!controlEnabled) return "Control disabled";
     if (
-      willUseIpc &&
+      liveOwnerReady &&
       summary.runtimeStatus !== "idle" &&
       summary.runtimeStatus !== "unknown" &&
       summary.latestTurnStatus !== "completed" &&
@@ -32,7 +31,7 @@ export function Composer({ summary, ipcOnline, controlEnabled, onSend }: Props) 
       return "Thread busy";
     }
     return null;
-  }, [controlEnabled, summary, willUseIpc]);
+  }, [controlEnabled, summary, liveOwnerReady]);
 
   useEffect(() => {
     setDirtySettings(false);
@@ -62,7 +61,9 @@ export function Composer({ summary, ipcOnline, controlEnabled, onSend }: Props) 
   return (
     <form className="composer" onSubmit={submit}>
       <div className="composer-input">
-        <div className="composer-mode">{disabledReason ?? `Send via ${sendMode}`}</div>
+        <div className="composer-mode">
+          {disabledReason ?? (liveOwnerReady ? "Backend routes to IPC owner" : "Backend routes to SDK resume")}
+        </div>
         <div className="composer-settings">
           <label>
             <span>Model</span>

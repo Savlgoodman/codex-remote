@@ -1,12 +1,62 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, Mapping
 
 
 Json = dict[str, Any]
 ThreadSource = Literal["live", "stale", "history-only"]
 MessageRole = Literal["user", "assistant", "system", "tool", "command", "reasoning"]
+SendMode = Literal["ipc-owner", "sdk-background"]
+
+
+@dataclass(frozen=True)
+class MessageOptions:
+    model: str | None = None
+    reasoning_effort: str | None = None
+    approval_policy: str | None = None
+    sandbox_mode: str | None = None
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, Any] | None) -> "MessageOptions":
+        value = value or {}
+        return cls(
+            model=_clean_option(value.get("model")),
+            reasoning_effort=_clean_option(value.get("reasoningEffort") or value.get("reasoning_effort")),
+            approval_policy=_clean_option(value.get("approvalPolicy") or value.get("approval_policy")),
+            sandbox_mode=_clean_option(value.get("sandboxMode") or value.get("sandbox_mode")),
+        )
+
+    def to_json(self) -> Json:
+        return {
+            "model": self.model,
+            "reasoningEffort": self.reasoning_effort,
+            "approvalPolicy": self.approval_policy,
+            "sandboxMode": self.sandbox_mode,
+        }
+
+
+@dataclass(frozen=True)
+class SendMessageCommand:
+    conversation_id: str
+    text: str
+    confirm_danger_full_access: bool = False
+    options: MessageOptions = field(default_factory=MessageOptions)
+
+
+@dataclass(frozen=True)
+class ReadMessagesQuery:
+    conversation_id: str
+    include_raw: bool = False
+
+
+@dataclass(frozen=True)
+class MessageRouteDecision:
+    mode: SendMode
+    reason: str
+
+    def to_json(self) -> Json:
+        return {"mode": self.mode, "reason": self.reason}
 
 
 @dataclass
@@ -199,6 +249,15 @@ def _truncate_text(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: max(0, limit - 1)] + "..."
+
+
+def _clean_option(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not value or value == "inherit":
+        return None
+    return value
 
 
 def _diff_summary(diff: str) -> Json:

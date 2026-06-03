@@ -54,6 +54,44 @@ export interface SendOptions {
   sandboxMode?: string;
 }
 
+export interface SendMessageRequest {
+  conversationId: string;
+  text: string;
+  confirmDangerFullAccess?: boolean;
+  options?: SendOptions;
+}
+
+export type SendMode = "ipc-owner" | "sdk-background";
+
+export interface MessageRoute {
+  mode: SendMode;
+  reason: string;
+}
+
+export interface SendMessageResponse {
+  ok: boolean;
+  mode: SendMode;
+  reason: string;
+  route: MessageRoute;
+  ipcResponse?: unknown;
+}
+
+export interface ReadMessagesQuery {
+  conversationId: string;
+}
+
+export interface WsLogEntry {
+  id: number;
+  timestamp: number;
+  direction: "system" | "in";
+  eventType: string;
+  size: number | null;
+  conversationId?: string;
+  summary?: string;
+  payloadPreview?: string;
+  payloadTruncated?: boolean;
+}
+
 export interface ThreadDetail {
   summary: ThreadSummary;
   messages: Message[];
@@ -61,7 +99,8 @@ export interface ThreadDetail {
 }
 
 export type ServerEvent =
-  | ({ type: "ipc.status" } & IpcStatus)
-  | { type: "threads.changed"; threads: ThreadSummary[] }
-  | { type: "thread.snapshot"; conversationId: string; summary: ThreadSummary; messages: Message[] }
-  | { type: "thread.patch"; conversationId: string; summary: ThreadSummary; patches: unknown[] };
+  | ({ type: "ipc.status"; version?: number } & IpcStatus)
+  | { type: "threads.snapshot"; version?: number; reason?: string; threads: ThreadSummary[] }
+  | { type: "thread.summary"; version?: number; conversationId: string; summary: ThreadSummary }
+  | { type: "thread.message.upsert"; version?: number; conversationId: string; message: Message }
+  | { type: "thread.snapshot"; version?: number; reason?: string; conversationId: string; summary: ThreadSummary; messages: Message[] };

@@ -30,7 +30,7 @@ http://127.0.0.1:5173
 - `GET /api/status`：查看 SDK、IPC、控制状态。
 - `GET /api/threads`：按活跃时间倒序列出线程，合并 SDK 历史和 IPC live 状态。
 - `GET /api/threads/{conversationId}`：读取完整消息历史，优先走 Python SDK。
-- `POST /api/threads/{conversationId}/messages`：当 IPC online 且线程有 App/VSCode owner 时，通过 `thread-follower-start-turn` 发送消息。
+- `POST /api/threads/{conversationId}/messages`：统一发送入口；后端根据 IPC 状态与线程 live owner 自动路由到 IPC owner 或 SDK resume。
 - `WS /api/events`：推送 IPC 状态、线程列表变化和线程 snapshot/patch。
 
 ## 控制开关
@@ -49,4 +49,3 @@ python -m uvicorn codex_server.main:app --host 127.0.0.1 --port 8765
 - 当前消息渲染是 MVP 版，先覆盖 user/agent/command/tool/reasoning。
 - `RolloutReader` 还是占位，后续再补 `.codex\sessions\...\rollout-*.jsonl` fallback。
 - 远程开放前必须增加 token 和审计日志，不要把服务直接暴露到公网。
-

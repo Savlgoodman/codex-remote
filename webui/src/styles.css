@@ -335,6 +335,18 @@ textarea {
   word-break: break-word;
 }
 
+.message-window-note {
+  background: #ffffff;
+  border: 1px solid #dce1e6;
+  border-radius: 7px;
+  color: #69717d;
+  font-size: 12px;
+  margin: 0 0 12px;
+  max-width: 980px;
+  padding: 9px 11px;
+  text-align: center;
+}
+
 .message-user .message-meta {
   background: #edf4ff;
 }
@@ -496,6 +508,226 @@ textarea {
   text-align: center;
 }
 
+.ws-debug {
+  background: #ffffff;
+  border: 1px solid #cfd6de;
+  border-radius: 7px;
+  bottom: 14px;
+  box-shadow: 0 12px 28px rgba(31, 42, 55, 0.18);
+  color: #27313d;
+  max-width: min(460px, calc(100vw - 28px));
+  position: fixed;
+  right: 14px;
+  width: 420px;
+  z-index: 20;
+}
+
+.ws-debug summary {
+  align-items: center;
+  cursor: pointer;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  list-style: none;
+  min-height: 38px;
+  padding: 8px 10px;
+  touch-action: none;
+  user-select: none;
+}
+
+.ws-debug summary::-webkit-details-marker {
+  display: none;
+}
+
+.ws-debug summary > span {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ws-debug-latest {
+  color: #69717d;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ws-debug-state {
+  border-radius: 999px;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 7px;
+}
+
+.ws-open {
+  background: #16a05d;
+}
+
+.ws-connecting {
+  background: #d19b25;
+}
+
+.ws-closed {
+  background: #8a929c;
+}
+
+.ws-open-icon,
+.ws-debug[open] .ws-closed-icon {
+  display: none;
+}
+
+.ws-debug[open] .ws-open-icon {
+  display: block;
+}
+
+.ws-debug-body {
+  border-top: 1px solid #e0e4e8;
+  display: grid;
+  gap: 8px;
+  padding: 8px 10px 10px;
+}
+
+.ws-debug-actions {
+  align-items: center;
+  color: #69717d;
+  display: flex;
+  font-size: 12px;
+  justify-content: space-between;
+}
+
+.ws-debug-buttons {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.ws-debug-actions button {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #cfd6de;
+  border-radius: 6px;
+  color: #27313d;
+  cursor: pointer;
+  display: inline-flex;
+  height: 28px;
+  justify-content: center;
+  width: 28px;
+}
+
+.ws-debug-list {
+  display: grid;
+  gap: 5px;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.ws-debug-entry {
+  display: grid;
+  gap: 4px;
+}
+
+.ws-debug-row {
+  align-items: baseline;
+  background: #f7f8fa;
+  border: 1px solid #e0e4e8;
+  border-radius: 6px;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  gap: 7px;
+  grid-template-columns: auto auto auto minmax(0, 1fr);
+  padding: 6px 7px;
+  text-align: left;
+  width: 100%;
+}
+
+.ws-debug-row:hover,
+.ws-debug-entry.expanded .ws-debug-row {
+  background: #eef3f8;
+  border-color: #cfd6de;
+}
+
+.ws-debug-row span,
+.ws-debug-row em {
+  color: #69717d;
+  font-size: 11px;
+  min-width: 0;
+}
+
+.ws-debug-row strong {
+  font-size: 12px;
+}
+
+.ws-debug-row em {
+  font-style: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ws-debug-empty {
+  color: #737b85;
+  font-size: 12px;
+  padding: 8px;
+}
+
+.ws-debug-payload {
+  background: #ffffff;
+  border: 1px solid #e0e4e8;
+  border-radius: 6px;
+  display: grid;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.ws-debug-payload-meta {
+  align-items: center;
+  background: #f7f8fa;
+  border-bottom: 1px solid #e0e4e8;
+  color: #69717d;
+  display: flex;
+  font-size: 11px;
+  gap: 8px;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 5px 6px;
+}
+
+.ws-debug-payload-meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ws-debug-payload-meta button {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #cfd6de;
+  border-radius: 5px;
+  color: #27313d;
+  cursor: pointer;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 24px;
+  justify-content: center;
+  width: 24px;
+}
+
+.ws-debug-payload pre {
+  color: #27313d;
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  padding: 7px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 @media (max-width: 840px) {
   .app-shell {
     height: 100dvh;
@@ -514,5 +746,11 @@ textarea {
 
   .composer-settings {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ws-debug {
+    bottom: 10px;
+    right: 10px;
+    width: calc(100vw - 20px);
   }
 }

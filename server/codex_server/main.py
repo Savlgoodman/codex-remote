@@ -13,7 +13,9 @@ from pydantic import BaseModel
 
 from .control_service import ControlError, ControlService
 from .ipc_client import IpcClient
-from .rollout_reader import RolloutReader, enrich_detail_from_rollout
+from .message_service import MessageService
+from .models import MessageOptions, ReadMessagesQuery, SendMessageCommand
+from .rollout_reader import RolloutReader
 from .sdk_reader import SdkReader
 from .state_store import StateStore
 
@@ -23,6 +25,7 @@ sdk_reader = SdkReader()
 rollout_reader = RolloutReader()
 ipc_client = IpcClient(on_message=store.handle_ipc_message, on_status=store.set_ipc_status)
 control_service = ControlService(store, ipc_client, sdk_reader)
+message_service = MessageService(store, sdk_reader, rollout_reader, control_service)
 CONTROL_ENABLED = os.environ.get("CODEX_WEBUI_ENABLE_CONTROL", "1") not in {"0", "false", "False"}
 
 
@@ -39,7 +42,7 @@ async def refresh_sdk_threads(limit: int = 100) -> None:
     rows = await sdk_reader.list_threads(limit=limit)
     for summary in rows:
         store.upsert_history_summary(summary)
-    store.publish({"type": "threads.changed", "threads": [item.to_json() for item in store.list_threads()]})
+    store.publish({"type": "threads.snapshot", "version": 1, "reason": "refresh", "threads": [item.to_json() for item in store.list_threads()]})
 
 
 @asynccontextmanager
@@ -87,24 +90,13 @@ async def api_threads(limit: int = 100) -> dict[str, Any]:
 
 @app.get("/api/threads/{conversation_id}")
 async def api_thread_detail(conversation_id: str, raw: bool = False) -> dict[str, Any]:
-    detail = await sdk_reader.read_thread(conversation_id)
-    snapshot = store.get_snapshot(conversation_id)
-    rollout_path = None
-    if snapshot is not None and isinstance(snapshot.state, dict):
-        rollout_path = snapshot.state.get("rolloutPath")
-    if detail is not None:
-        detail = await asyncio.to_thread(enrich_detail_from_rollout, detail, rollout_path)
-    else:
-        detail = await rollout_reader.read_thread(conversation_id, rollout_path)
-    if detail is not None:
-        store.upsert_detail(detail)
-    cached = store.get_detail(conversation_id)
-    if cached is None:
+    detail = await message_service.read_messages(ReadMessagesQuery(conversation_id=conversation_id, include_raw=raw))
+    if detail is None:
         summary = store.get_summary(conversation_id)
         if summary is None:
             raise HTTPException(status_code=404, detail="thread_not_found")
         return {"summary": summary.to_json(), "messages": [], "pagination": None}
-    return cached.to_json(include_raw=raw)
+    return detail.to_json(include_raw=raw)
 
 
 @app.post("/api/threads/{conversation_id}/messages")
@@ -117,16 +109,20 @@ async def api_send_message(conversation_id: str, request: SendMessageRequest) ->
     if not request.text.strip():
         raise HTTPException(status_code=400, detail="empty_text")
     try:
-        result = await control_service.send_message(
-            conversation_id,
-            request.text,
-            confirm_danger_full_access=request.confirmDangerFullAccess,
-            options={
-                "model": request.model,
-                "reasoningEffort": request.reasoningEffort,
-                "approvalPolicy": request.approvalPolicy,
-                "sandboxMode": request.sandboxMode,
-            },
+        result = await message_service.send_message(
+            SendMessageCommand(
+                conversation_id=conversation_id,
+                text=request.text,
+                confirm_danger_full_access=request.confirmDangerFullAccess,
+                options=MessageOptions.from_mapping(
+                    {
+                        "model": request.model,
+                        "reasoningEffort": request.reasoningEffort,
+                        "approvalPolicy": request.approvalPolicy,
+                        "sandboxMode": request.sandboxMode,
+                    }
+                ),
+            )
         )
     except ControlError as exc:
         return JSONResponse(status_code=409, content={"ok": False, "error": exc.code, "message": exc.message})
@@ -140,8 +136,8 @@ async def websocket_events(websocket: WebSocket) -> None:
     await websocket.accept()
     queue = store.subscribe()
     try:
-        await websocket.send_json({"type": "ipc.status", **store.ipc_status.to_json()})
-        await websocket.send_json({"type": "threads.changed", "threads": [item.to_json() for item in store.list_threads()]})
+        await websocket.send_json({"type": "ipc.status", "version": 1, **store.ipc_status.to_json()})
+        await websocket.send_json({"type": "threads.snapshot", "version": 1, "reason": "subscribe", "threads": [item.to_json() for item in store.list_threads()]})
         while True:
             event = await queue.get()
             await websocket.send_json(event)

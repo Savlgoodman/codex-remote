@@ -1,4 +1,4 @@
-import type { SendOptions, ServerStatus, ThreadDetail, ThreadSummary } from "./types";
+import type { ReadMessagesQuery, SendMessageRequest, SendMessageResponse, SendOptions, ServerStatus, ThreadDetail, ThreadSummary } from "./types";
 
 export const API_BASE = import.meta.env.VITE_CODEX_SERVER_URL ?? "http://127.0.0.1:8765";
 
@@ -31,14 +31,18 @@ export async function getThreads(): Promise<ThreadSummary[]> {
   return data.threads;
 }
 
-export async function getThreadDetail(conversationId: string): Promise<ThreadDetail> {
-  return requestJson<ThreadDetail>(`/api/threads/${encodeURIComponent(conversationId)}`);
+export async function getThreadDetail(query: ReadMessagesQuery): Promise<ThreadDetail> {
+  return requestJson<ThreadDetail>(`/api/threads/${encodeURIComponent(query.conversationId)}`);
 }
 
-export async function sendMessage(conversationId: string, text: string, confirmDangerFullAccess = false, options: SendOptions = {}): Promise<unknown> {
-  return requestJson(`/api/threads/${encodeURIComponent(conversationId)}/messages`, {
+export async function sendMessage(command: SendMessageRequest): Promise<SendMessageResponse> {
+  return requestJson<SendMessageResponse>(`/api/threads/${encodeURIComponent(command.conversationId)}/messages`, {
     method: "POST",
-    body: JSON.stringify({ text, confirmDangerFullAccess, ...compactOptions(options) }),
+    body: JSON.stringify({
+      text: command.text,
+      confirmDangerFullAccess: command.confirmDangerFullAccess ?? false,
+      ...compactOptions(command.options ?? {}),
+    }),
   });
 }
 
