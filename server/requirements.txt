@@ -1,6 +1,0 @@
-fastapi>=0.115
-uvicorn[standard]>=0.30
-# Optional: the app can use the Codex Python SDK when openai_codex is installed.
-# The openai-codex package is not currently available from PyPI, so keep it out
-# of the default install path to avoid breaking environment setup.
-# openai-codex>=0.1
