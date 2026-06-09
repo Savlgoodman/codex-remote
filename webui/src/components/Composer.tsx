@@ -7,16 +7,16 @@ interface Props {
   ipcOnline: boolean;
   controlEnabled: boolean;
   onSend: (text: string, options?: SendOptions) => Promise<void>;
+  onSettingsChange?: (options: SendOptions, confirmDangerFullAccess?: boolean) => Promise<void>;
 }
 
-export function Composer({ summary, ipcOnline, controlEnabled, onSend }: Props) {
+export function Composer({ summary, ipcOnline, controlEnabled, onSend, onSettingsChange }: Props) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [model, setModel] = useState("");
   const [reasoningEffort, setReasoningEffort] = useState("inherit");
   const [approvalPolicy, setApprovalPolicy] = useState("inherit");
   const [sandboxMode, setSandboxMode] = useState("inherit");
-  const [dirtySettings, setDirtySettings] = useState(false);
   const liveOwnerReady = ipcOnline && summary.hasLiveOwner;
   const disabledReason = useMemo(() => {
     if (!controlEnabled) return "Control disabled";
@@ -34,16 +34,11 @@ export function Composer({ summary, ipcOnline, controlEnabled, onSend }: Props) 
   }, [controlEnabled, summary, liveOwnerReady]);
 
   useEffect(() => {
-    setDirtySettings(false);
-  }, [summary.conversationId]);
-
-  useEffect(() => {
-    if (dirtySettings) return;
     setModel(summary.latestModel ?? "");
     setReasoningEffort(summary.latestReasoningEffort ?? "inherit");
     setApprovalPolicy(summary.approvalPolicy ?? "inherit");
     setSandboxMode(summary.sandboxMode ?? "inherit");
-  }, [dirtySettings, summary.approvalPolicy, summary.latestModel, summary.latestReasoningEffort, summary.sandboxMode]);
+  }, [summary.approvalPolicy, summary.latestModel, summary.latestReasoningEffort, summary.sandboxMode]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -58,6 +53,21 @@ export function Composer({ summary, ipcOnline, controlEnabled, onSend }: Props) 
     }
   }
 
+  function settings(overrides: SendOptions = {}): SendOptions {
+    return {
+      model: model.trim(),
+      reasoningEffort,
+      approvalPolicy,
+      sandboxMode,
+      ...overrides,
+    };
+  }
+
+  function syncSettings(next: SendOptions, confirmDangerFullAccess = false) {
+    if (disabledReason) return;
+    void onSettingsChange?.(next, confirmDangerFullAccess);
+  }
+
   return (
     <form className="composer" onSubmit={submit}>
       <div className="composer-input">
@@ -70,9 +80,9 @@ export function Composer({ summary, ipcOnline, controlEnabled, onSend }: Props) 
             <input
               value={model}
               onChange={(event) => {
-                setDirtySettings(true);
                 setModel(event.target.value);
               }}
+              onBlur={() => syncSettings(settings())}
               placeholder="inherit"
               disabled={Boolean(disabledReason)}
             />
@@ -82,8 +92,9 @@ export function Composer({ summary, ipcOnline, controlEnabled, onSend }: Props) 
             <select
               value={reasoningEffort}
               onChange={(event) => {
-                setDirtySettings(true);
-                setReasoningEffort(event.target.value);
+                const value = event.target.value;
+                setReasoningEffort(value);
+                syncSettings(settings({ reasoningEffort: value }));
               }}
               disabled={Boolean(disabledReason)}
             >
@@ -101,8 +112,9 @@ export function Composer({ summary, ipcOnline, controlEnabled, onSend }: Props) 
             <select
               value={approvalPolicy}
               onChange={(event) => {
-                setDirtySettings(true);
-                setApprovalPolicy(event.target.value);
+                const value = event.target.value;
+                setApprovalPolicy(value);
+                syncSettings(settings({ approvalPolicy: value }));
               }}
               disabled={Boolean(disabledReason)}
             >
@@ -116,8 +128,14 @@ export function Composer({ summary, ipcOnline, controlEnabled, onSend }: Props) 
             <select
               value={sandboxMode}
               onChange={(event) => {
-                setDirtySettings(true);
-                setSandboxMode(event.target.value);
+                const value = event.target.value;
+                let confirmDangerFullAccess = false;
+                if (value === "danger-full-access" && sandboxMode !== value) {
+                  confirmDangerFullAccess = window.confirm("This settings change enables full access. Continue?");
+                  if (!confirmDangerFullAccess) return;
+                }
+                setSandboxMode(value);
+                syncSettings(settings({ sandboxMode: value }), confirmDangerFullAccess);
               }}
               disabled={Boolean(disabledReason)}
             >

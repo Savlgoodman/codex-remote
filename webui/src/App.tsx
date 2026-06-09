@@ -1,12 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
-import { getStatus, getThreadDetail, getThreads, refreshThreads, sendMessage, websocketUrl } from "./api";
+import {
+  getStatus,
+  getThreadDetail,
+  getThreads,
+  pauseIpcMonitor,
+  refreshThreads,
+  sendMessage,
+  startIpcMonitor,
+  updateThreadSettings,
+  websocketUrl,
+} from "./api";
+import { IpcMonitorPanel } from "./components/IpcMonitorPanel";
 import { Composer } from "./components/Composer";
 import { MessageView } from "./components/MessageView";
 import { StatusBar } from "./components/StatusBar";
 import { ThreadList } from "./components/ThreadList";
 import { WsDebugPanel } from "./components/WsDebugPanel";
-import type { IpcStatus, Message, SendOptions, ServerEvent, ServerStatus, ThreadDetail, ThreadSummary, WsLogEntry } from "./types";
+import type { IpcRawEvent, IpcStatus, Message, SendOptions, ServerEvent, ServerStatus, ThreadDetail, ThreadSummary, WsLogEntry } from "./types";
 
 const initialIpc: IpcStatus = {
   online: false,
@@ -17,6 +28,7 @@ const initialIpc: IpcStatus = {
 };
 const WS_LOG_KEY = "codex-webui.wsLogs";
 const MAX_WS_LOGS = 160;
+const MAX_IPC_EVENTS = 500;
 const MAX_RENDERED_MESSAGES = 180;
 const WS_PAYLOAD_PREVIEW_LIMIT = 20_000;
 
@@ -34,7 +46,10 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [wsState, setWsState] = useState<"connecting" | "open" | "closed">("connecting");
   const [wsLogs, setWsLogs] = useState<WsLogEntry[]>(loadWsLogs);
+  const [ipcCapturing, setIpcCapturing] = useState(false);
+  const [ipcEvents, setIpcEvents] = useState<IpcRawEvent[]>([]);
   const messageScrollRef = useRef<HTMLDivElement | null>(null);
+  const ipcCapturingRef = useRef(false);
   const pendingEventsRef = useRef<ServerEvent[]>([]);
   const pendingLogsRef = useRef<WsLogEntry[]>([]);
   const flushTimerRef = useRef<number | null>(null);
@@ -56,6 +71,10 @@ export function App() {
   useEffect(() => {
     void loadInitial();
   }, []);
+
+  useEffect(() => {
+    ipcCapturingRef.current = ipcCapturing;
+  }, [ipcCapturing]);
 
   useEffect(() => {
     let stopped = false;
@@ -85,7 +104,9 @@ export function App() {
       socket.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data) as ServerEvent;
-          enqueueWsLog(eventWsLog(data, event.data.length));
+          if (data.type !== "ipc.raw") {
+            enqueueWsLog(eventWsLog(data, event.data.length));
+          }
           enqueueServerEvent(data);
         } catch (exc) {
           enqueueWsLog(systemWsLog("parse_error", exc instanceof Error ? exc.message : String(exc)));
@@ -120,9 +141,14 @@ export function App() {
       const latestSummaries = new Map<string, ThreadSummary>();
       const latestSnapshots = new Map<string, Extract<ServerEvent, { type: "thread.snapshot" }>>();
       const latestMessages = new Map<string, Message[]>();
+      const rawIpcEvents: IpcRawEvent[] = [];
       for (const event of events) {
         if (event.type === "ipc.status") {
           latestIpc = event;
+        } else if (event.type === "ipc.monitor.status") {
+          setIpcCapturing(event.capturing);
+        } else if (event.type === "ipc.raw") {
+          rawIpcEvents.push(event);
         } else if (event.type === "threads.snapshot") {
           latestThreads = event.threads;
         } else if (event.type === "thread.summary") {
@@ -136,6 +162,9 @@ export function App() {
       }
       if (latestIpc) {
         setStatus((prev) => ({ ...prev, ipc: latestIpc }));
+      }
+      if (rawIpcEvents.length > 0 && ipcCapturingRef.current) {
+        setIpcEvents((prev) => [...rawIpcEvents.reverse(), ...prev].slice(0, MAX_IPC_EVENTS));
       }
       if (latestThreads) {
         setThreads(latestThreads);
@@ -245,6 +274,43 @@ export function App() {
     }
   }
 
+  async function handleIpcMonitorStart() {
+    const response = await startIpcMonitor();
+    setIpcCapturing(response.capturing);
+  }
+
+  async function handleIpcMonitorPause() {
+    const response = await pauseIpcMonitor();
+    setIpcCapturing(response.capturing);
+  }
+
+  async function handleSettingsChange(options: SendOptions, confirmDangerFullAccess = false) {
+    if (!selectedId) return;
+    setError(null);
+    try {
+      const response = await updateThreadSettings(selectedId, options, confirmDangerFullAccess);
+      if (response.summary) {
+        setThreads((prev) => upsertThread(prev, response.summary as ThreadSummary));
+        setDetail((prev) => {
+          if (!prev || prev.summary.conversationId !== response.summary?.conversationId) return prev;
+          return { ...prev, summary: response.summary };
+        });
+      }
+      const warning = ipcSyncWarning(response.ipcSync);
+      if (warning) setError(warning);
+    } catch (exc) {
+      const err = exc as Error & { data?: { error?: string; message?: string } };
+      if (err.data?.error === "dangerFullAccess_requires_confirmation") {
+        const confirmed = window.confirm(err.data.message ?? "This settings change enables full access. Continue?");
+        if (confirmed) {
+          await handleSettingsChange(options, true);
+          return;
+        }
+      }
+      setError(err.data?.message ?? err.message ?? String(exc));
+    }
+  }
+
   const messages: Message[] = detail?.messages ?? [];
   const visibleMessages = messages.length > MAX_RENDERED_MESSAGES ? messages.slice(-MAX_RENDERED_MESSAGES) : messages;
 
@@ -299,7 +365,13 @@ export function App() {
                   <MessageView key={message.id} message={message} />
                 ))}
               </div>
-              <Composer summary={selectedSummary} ipcOnline={status.ipc.online} controlEnabled={status.control?.enabled !== false} onSend={handleSend} />
+              <Composer
+                summary={selectedSummary}
+                ipcOnline={status.ipc.online}
+                controlEnabled={status.control?.enabled !== false}
+                onSend={handleSend}
+                onSettingsChange={handleSettingsChange}
+              />
             </>
           ) : (
             <div className="empty-detail">Select a thread to inspect Codex activity.</div>
@@ -313,6 +385,13 @@ export function App() {
           window.localStorage.removeItem(WS_LOG_KEY);
           setWsLogs([]);
         }}
+      />
+      <IpcMonitorPanel
+        capturing={ipcCapturing}
+        events={ipcEvents}
+        onStart={handleIpcMonitorStart}
+        onPause={handleIpcMonitorPause}
+        onClear={() => setIpcEvents([])}
       />
     </div>
   );
@@ -375,7 +454,7 @@ function eventWsLog(event: ServerEvent, size: number): WsLogEntry {
     direction: "in",
     eventType: event.type,
     size,
-    conversationId: "conversationId" in event ? event.conversationId : undefined,
+    conversationId: "conversationId" in event ? event.conversationId ?? undefined : undefined,
     summary: eventSummary(event),
     payloadPreview: payload.preview,
     payloadTruncated: payload.truncated,
@@ -384,6 +463,8 @@ function eventWsLog(event: ServerEvent, size: number): WsLogEntry {
 
 function eventSummary(event: ServerEvent) {
   if (event.type === "ipc.status") return event.online ? "ipc online" : `ipc offline ${event.lastError ?? ""}`.trim();
+  if (event.type === "ipc.monitor.status") return event.capturing ? "ipc monitor capturing" : "ipc monitor paused";
+  if (event.type === "ipc.raw") return event.summary;
   if (event.type === "threads.snapshot") return `full list: ${event.threads.length} threads`;
   if (event.type === "thread.summary") return event.summary.latestItemPreview || event.summary.runtimeStatus;
   if (event.type === "thread.snapshot") return `${event.messages.length} messages`;
@@ -401,4 +482,16 @@ function payloadPreview(event: ServerEvent) {
   const text = JSON.stringify(event, null, 2);
   if (text.length <= WS_PAYLOAD_PREVIEW_LIMIT) return { preview: text, truncated: false };
   return { preview: `${text.slice(0, WS_PAYLOAD_PREVIEW_LIMIT)}\n... truncated ${text.length - WS_PAYLOAD_PREVIEW_LIMIT} chars`, truncated: true };
+}
+
+function ipcSyncWarning(value: unknown): string | null {
+  if (!Array.isArray(value)) return null;
+  const failedModelSync = value.find((item) => {
+    if (typeof item !== "object" || item === null) return false;
+    const row = item as { method?: unknown; ok?: unknown };
+    return row.method === "thread-follower-set-model-and-reasoning" && row.ok === false;
+  });
+  if (!failedModelSync || typeof failedModelSync !== "object") return null;
+  const error = (failedModelSync as { error?: unknown }).error;
+  return `IPC model/reasoning sync failed: ${typeof error === "string" ? error : "unknown error"}`;
 }

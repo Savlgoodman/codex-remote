@@ -728,6 +728,212 @@ textarea {
   word-break: break-word;
 }
 
+.ipc-monitor {
+  background: #ffffff;
+  border: 1px solid #cfd6de;
+  border-radius: 7px;
+  bottom: 14px;
+  box-shadow: 0 12px 28px rgba(31, 42, 55, 0.18);
+  color: #27313d;
+  display: grid;
+  left: 14px;
+  max-height: min(520px, calc(100vh - 80px));
+  max-width: min(780px, calc(100vw - 500px));
+  min-width: 520px;
+  overflow: hidden;
+  position: fixed;
+  width: 45vw;
+  z-index: 19;
+}
+
+.ipc-monitor-head {
+  align-items: center;
+  border-bottom: 1px solid #e0e4e8;
+  display: flex;
+  justify-content: space-between;
+  min-height: 38px;
+  padding: 8px 10px;
+}
+
+.ipc-monitor-head div:first-child {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+}
+
+.ipc-monitor-head strong {
+  font-size: 13px;
+}
+
+.ipc-monitor-head span {
+  background: #eef3f8;
+  border: 1px solid #d6dee8;
+  border-radius: 999px;
+  color: #4d5b69;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 7px;
+}
+
+.ipc-monitor-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.ipc-monitor-actions button,
+.ipc-entry-meta button {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #cfd6de;
+  border-radius: 6px;
+  color: #27313d;
+  cursor: pointer;
+  display: inline-flex;
+  height: 28px;
+  justify-content: center;
+  width: 28px;
+}
+
+.ipc-monitor-list {
+  display: grid;
+  gap: 5px;
+  max-height: 470px;
+  overflow: auto;
+  padding: 8px 10px 10px;
+}
+
+.ipc-monitor-empty {
+  color: #737b85;
+  font-size: 12px;
+  padding: 8px;
+}
+
+.ipc-entry {
+  border-left: 4px solid #98a0aa;
+  display: grid;
+  gap: 4px;
+}
+
+.ipc-entry-row {
+  align-items: baseline;
+  background: #f7f8fa;
+  border: 1px solid #e0e4e8;
+  border-left: 0;
+  border-radius: 0 6px 6px 0;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  gap: 7px;
+  grid-template-columns: auto auto auto auto minmax(0, 1fr) auto;
+  min-width: 0;
+  padding: 6px 7px;
+  text-align: left;
+  width: 100%;
+}
+
+.ipc-entry-row:hover {
+  background: #eef3f8;
+}
+
+.ipc-entry-row span,
+.ipc-entry-row em {
+  color: #69717d;
+  font-size: 11px;
+  min-width: 0;
+}
+
+.ipc-entry-row strong {
+  font-size: 12px;
+}
+
+.ipc-entry-row em {
+  font-style: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ipc-direction {
+  border-radius: 4px;
+  color: #ffffff !important;
+  font-weight: 800;
+  padding: 2px 5px;
+  text-transform: uppercase;
+}
+
+.ipc-in {
+  background: #177245;
+}
+
+.ipc-out {
+  background: #1e6bff;
+}
+
+.ipc-request {
+  border-left-color: #1e6bff;
+}
+
+.ipc-response {
+  border-left-color: #16a05d;
+}
+
+.ipc-broadcast {
+  border-left-color: #b468d9;
+}
+
+.ipc-thread-summary {
+  border-left-color: #d19b25;
+}
+
+.ipc-discovery {
+  border-left-color: #0f8b8d;
+}
+
+.ipc-other {
+  border-left-color: #98a0aa;
+}
+
+.ipc-entry-payload {
+  background: #ffffff;
+  border: 1px solid #e0e4e8;
+  border-left: 0;
+  border-radius: 0 6px 6px 0;
+  display: grid;
+  overflow: hidden;
+}
+
+.ipc-entry-meta {
+  align-items: center;
+  background: #f7f8fa;
+  border-bottom: 1px solid #e0e4e8;
+  color: #69717d;
+  display: flex;
+  font-size: 11px;
+  gap: 8px;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 5px 6px;
+}
+
+.ipc-entry-meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ipc-entry-payload pre {
+  color: #27313d;
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  margin: 0;
+  max-height: 300px;
+  overflow: auto;
+  padding: 7px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 @media (max-width: 840px) {
   .app-shell {
     height: 100dvh;
@@ -752,5 +958,22 @@ textarea {
     bottom: 10px;
     right: 10px;
     width: calc(100vw - 20px);
+  }
+
+  .ipc-monitor {
+    bottom: 56px;
+    left: 10px;
+    max-width: calc(100vw - 20px);
+    min-width: 0;
+    width: calc(100vw - 20px);
+  }
+
+  .ipc-entry-row {
+    grid-template-columns: auto auto auto minmax(0, 1fr);
+  }
+
+  .ipc-entry-row span:nth-of-type(2),
+  .ipc-entry-row span:last-child {
+    display: none;
   }
 }

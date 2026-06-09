@@ -76,6 +76,12 @@ export interface SendMessageResponse {
   ipcResponse?: unknown;
 }
 
+export interface ThreadSettingsResponse {
+  ok: boolean;
+  summary: ThreadSummary | null;
+  ipcSync?: unknown;
+}
+
 export interface ReadMessagesQuery {
   conversationId: string;
 }
@@ -92,6 +98,22 @@ export interface WsLogEntry {
   payloadTruncated?: boolean;
 }
 
+export interface IpcRawEvent {
+  type: "ipc.raw";
+  version?: number;
+  direction: "in" | "out";
+  timestamp: number;
+  size: number;
+  ipcType: string;
+  method: string | null;
+  requestId: string | null;
+  conversationId: string | null;
+  summary: string;
+  payload: unknown;
+  payloadPreview: string;
+  payloadTruncated: boolean;
+}
+
 export interface ThreadDetail {
   summary: ThreadSummary;
   messages: Message[];
@@ -100,6 +122,8 @@ export interface ThreadDetail {
 
 export type ServerEvent =
   | ({ type: "ipc.status"; version?: number } & IpcStatus)
+  | { type: "ipc.monitor.status"; version?: number; capturing: boolean }
+  | IpcRawEvent
   | { type: "threads.snapshot"; version?: number; reason?: string; threads: ThreadSummary[] }
   | { type: "thread.summary"; version?: number; conversationId: string; summary: ThreadSummary }
   | { type: "thread.message.upsert"; version?: number; conversationId: string; message: Message }

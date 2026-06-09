@@ -194,12 +194,14 @@ class IpcClient:
         reconnect_interval: float = 2.0,
         on_message: Callable[[dict[str, Any]], None] | None = None,
         on_status: Callable[[IpcStatus], None] | None = None,
+        on_raw_message: Callable[[str, dict[str, Any]], None] | None = None,
     ):
         self.path = path or default_ipc_path()
         self.client_type = client_type
         self.reconnect_interval = reconnect_interval
         self.on_message = on_message
         self.on_status = on_status
+        self.on_raw_message = on_raw_message
         self.status = IpcStatus()
         self.client_id: str | None = None
         self._transport = IpcTransport(self.path)
@@ -234,7 +236,7 @@ class IpcClient:
         self._transport = IpcTransport(self.path)
         self._transport.connect()
         request_id = str(uuid.uuid4())
-        self._transport.write_message(
+        self._write_message(
             {
                 "type": "request",
                 "requestId": request_id,
@@ -248,6 +250,7 @@ class IpcClient:
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
             message = self._transport.read_message(timeout=max(0.05, deadline - time.monotonic()))
+            self._emit_raw_message("in", message)
             if message.get("type") == "response" and message.get("method") == "initialize":
                 result = message.get("result")
                 self.client_id = result.get("clientId") if isinstance(result, dict) else None
@@ -270,12 +273,13 @@ class IpcClient:
             except TimeoutError:
                 continue
             self.status.last_seen_at = time.time()
+            self._emit_raw_message("in", message)
             self._handle_message(message)
 
     def _handle_message(self, message: dict[str, Any]) -> None:
         message_type = message.get("type")
         if message_type == "client-discovery-request":
-            self._transport.write_message(
+            self._write_message(
                 {
                     "type": "client-discovery-response",
                     "requestId": message.get("requestId"),
@@ -284,7 +288,7 @@ class IpcClient:
             )
             return
         if message_type == "request":
-            self._transport.write_message(
+            self._write_message(
                 {
                     "type": "response",
                     "requestId": message.get("requestId"),
@@ -312,7 +316,7 @@ class IpcClient:
         with self._pending_lock:
             self._pending[request_id] = pending
         try:
-            self._transport.write_message(
+            self._write_message(
                 {
                     "type": "request",
                     "requestId": request_id,
@@ -334,6 +338,42 @@ class IpcClient:
 
     async def request_async(self, method: str, params: dict[str, Any], *, version: int = 1, timeout: float = 45) -> dict[str, Any]:
         return await asyncio.to_thread(self.request, method, params, version=version, timeout=timeout)
+
+    def broadcast(self, method: str, params: dict[str, Any], *, version: int = 1) -> None:
+        if not self.status.online or not self.client_id:
+            raise RuntimeError("ipc_offline")
+        self._write_message(
+            {
+                "type": "broadcast",
+                "sourceClientId": self.client_id,
+                "version": version,
+                "method": method,
+                "params": params,
+            }
+        )
+
+    async def broadcast_async(self, method: str, params: dict[str, Any], *, version: int = 1) -> None:
+        await asyncio.to_thread(self.broadcast, method, params, version=version)
+
+    def send_event(self, event: dict[str, Any]) -> None:
+        if not self.status.online or not self.client_id:
+            raise RuntimeError("ipc_offline")
+        self._write_message(event)
+
+    async def send_event_async(self, event: dict[str, Any]) -> None:
+        await asyncio.to_thread(self.send_event, event)
+
+    def _write_message(self, message: dict[str, Any]) -> None:
+        self._transport.write_message(message)
+        self._emit_raw_message("out", message)
+
+    def _emit_raw_message(self, direction: str, message: dict[str, Any]) -> None:
+        if self.on_raw_message is None:
+            return
+        try:
+            self.on_raw_message(direction, message)
+        except Exception:
+            return
 
     def _mark_offline(self, error: str) -> None:
         self._transport.close()

@@ -268,6 +268,30 @@ def summary_from_ipc_state(conversation_id: str, state: dict[str, Any] | None, *
     )
 
 
+def summary_from_ipc_summary(value: dict[str, Any], fallback_conversation_id: str = "") -> ThreadSummary:
+    conversation_id = str(value.get("conversationId") or value.get("conversation_id") or fallback_conversation_id or "")
+    source = value.get("source")
+    if source not in {"live", "stale", "history-only"}:
+        source = "live"
+    has_live_owner = value.get("hasLiveOwner") if "hasLiveOwner" in value else value.get("has_live_owner")
+    return ThreadSummary(
+        conversation_id=conversation_id,
+        title=compact_text(value.get("title") or "(untitled)", 90),
+        cwd=str(value.get("cwd") or ""),
+        source=source,
+        runtime_status=str(value.get("runtimeStatus") or value.get("runtime_status") or "unknown"),
+        latest_turn_status=str(value.get("latestTurnStatus") or value.get("latest_turn_status") or "-"),
+        latest_item_preview=compact_text(value.get("latestItemPreview") or value.get("latest_item_preview") or "", 180),
+        active_at=_number_or_none(value.get("activeAt") or value.get("active_at")),
+        updated_at=_number_or_none(value.get("updatedAt") or value.get("updated_at")),
+        has_live_owner=bool(has_live_owner) if has_live_owner is not None else source == "live",
+        latest_model=_string_or_none(value.get("latestModel") or value.get("latest_model")),
+        latest_reasoning_effort=_string_or_none(value.get("latestReasoningEffort") or value.get("latest_reasoning_effort")),
+        approval_policy=_string_or_none(value.get("approvalPolicy") or value.get("approval_policy")),
+        sandbox_mode=_string_or_none(value.get("sandboxMode") or value.get("sandbox_mode")),
+    )
+
+
 def message_from_item(item: dict[str, Any], message_id: str, created_at: float | None = None) -> Message | None:
     root = item.get("root")
     if isinstance(root, dict):
@@ -512,8 +536,14 @@ def safe_json_dumps(value: Any) -> str:
 def model_settings_from_state(state: dict[str, Any] | None) -> tuple[str | None, str | None]:
     if not isinstance(state, dict):
         return None, None
-    model = state.get("latestModel") or state.get("latest_model")
-    effort = state.get("latestReasoningEffort") or state.get("latest_reasoning_effort")
+    model = None
+    effort = None
+    thread_settings = state.get("latestThreadSettings") or state.get("latest_thread_settings")
+    if isinstance(thread_settings, dict):
+        model = model or thread_settings.get("model")
+        effort = effort or thread_settings.get("reasoningEffort") or thread_settings.get("reasoning_effort") or thread_settings.get("effort")
+    model = model or state.get("latestModel") or state.get("latest_model")
+    effort = effort or state.get("latestReasoningEffort") or state.get("latest_reasoning_effort")
     collaboration_mode = state.get("latestCollaborationMode") or state.get("latest_collaboration_mode")
     settings = collaboration_mode.get("settings") if isinstance(collaboration_mode, dict) else None
     if isinstance(settings, dict):
@@ -532,8 +562,14 @@ def permission_settings_from_state(state: dict[str, Any] | None) -> tuple[str | 
         return None, None
     current = state.get("currentPermissions") or state.get("current_permissions")
     current_permissions = current if isinstance(current, dict) else {}
-    approval_policy = current_permissions.get("approvalPolicy") or current_permissions.get("approval_policy")
-    sandbox_policy = current_permissions.get("sandboxPolicy") or current_permissions.get("sandbox_policy")
+    approval_policy = None
+    sandbox_policy = None
+    thread_settings = state.get("latestThreadSettings") or state.get("latest_thread_settings")
+    if isinstance(thread_settings, dict):
+        approval_policy = approval_policy or thread_settings.get("approvalPolicy") or thread_settings.get("approval_policy")
+        sandbox_policy = sandbox_policy or thread_settings.get("sandboxPolicy") or thread_settings.get("sandbox_policy")
+    approval_policy = approval_policy or current_permissions.get("approvalPolicy") or current_permissions.get("approval_policy")
+    sandbox_policy = sandbox_policy or current_permissions.get("sandboxPolicy") or current_permissions.get("sandbox_policy")
     turn = latest_turn(state)
     params = turn.get("params") if isinstance(turn, dict) and isinstance(turn.get("params"), dict) else None
     if isinstance(params, dict):
@@ -561,3 +597,9 @@ def _string_or_none(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
     return value or None
+
+
+def _number_or_none(value: Any) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None

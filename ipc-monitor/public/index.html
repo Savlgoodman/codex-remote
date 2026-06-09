@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Codex IPC Monitor</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>Codex IPC Monitor</h1>
+          <p class="subtitle">Standalone IPC stream capture with raw and parsed views.</p>
+        </div>
+        <div class="status-strip" id="status-strip"></div>
+      </header>
+
+      <section class="toolbar">
+        <div class="controls">
+          <button id="start-btn" class="btn btn-start" type="button">Start Capture</button>
+          <button id="pause-btn" class="btn btn-pause" type="button">Pause Capture</button>
+          <button id="export-btn" class="btn btn-export" type="button">Export JSONL</button>
+          <button id="clear-btn" class="btn btn-clear" type="button">Clear</button>
+        </div>
+        <div class="filters">
+          <input id="search-input" type="search" placeholder="Search type, method, path, model, JSON..." />
+        </div>
+      </section>
+
+      <section class="legend" id="legend"></section>
+
+      <main class="content-grid">
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Packets</h2>
+            <span id="packet-count" class="muted">0 shown</span>
+          </div>
+          <div id="packets" class="packet-list"></div>
+        </section>
+
+        <aside class="panel side-panel">
+          <div class="panel-header">
+            <h2>Connection</h2>
+          </div>
+          <dl id="status-details" class="status-details"></dl>
+        </aside>
+      </main>
+    </div>
+
+    <template id="packet-template">
+      <details class="packet-card">
+        <summary class="packet-summary">
+          <div class="summary-main">
+            <div class="summary-row">
+              <span class="type-chip"></span>
+              <span class="direction-chip"></span>
+              <span class="method-chip"></span>
+            </div>
+            <div class="packet-title"></div>
+            <div class="packet-meta"></div>
+          </div>
+          <div class="summary-side">
+            <span class="packet-size"></span>
+            <span class="packet-time"></span>
+          </div>
+        </summary>
+        <div class="packet-body">
+          <div class="json-section">
+            <div class="json-header">Parsed</div>
+            <pre class="parsed-json"></pre>
+          </div>
+          <div class="json-section">
+            <div class="json-header">Raw</div>
+            <pre class="raw-json"></pre>
+          </div>
+        </div>
+      </details>
+    </template>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

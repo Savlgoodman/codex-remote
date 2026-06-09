@@ -8,7 +8,7 @@
 
 ```powershell
 cd C:\Users\pengy\project\codex-remote\server
-python -m uvicorn codex_server.main:app --host 127.0.0.1 --port 8765
+python -m uvicorn codex_server.main:app --host 127.0.0.1 --port 7002
 ```
 
 前端：
@@ -16,13 +16,13 @@ python -m uvicorn codex_server.main:app --host 127.0.0.1 --port 8765
 ```powershell
 cd C:\Users\pengy\project\codex-remote\webui
 npm install
-npm run dev -- --port 5173
+npm run dev
 ```
 
 打开：
 
 ```text
-http://127.0.0.1:5173
+http://127.0.0.1:7001
 ```
 
 ## 当前能力
@@ -39,7 +39,7 @@ http://127.0.0.1:5173
 
 ```powershell
 $env:CODEX_WEBUI_ENABLE_CONTROL="0"
-python -m uvicorn codex_server.main:app --host 127.0.0.1 --port 8765
+python -m uvicorn codex_server.main:app --host 127.0.0.1 --port 7002
 ```
 
 ## 重要限制

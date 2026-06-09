@@ -1,6 +1,15 @@
-import type { ReadMessagesQuery, SendMessageRequest, SendMessageResponse, SendOptions, ServerStatus, ThreadDetail, ThreadSummary } from "./types";
+import type {
+  ReadMessagesQuery,
+  SendMessageRequest,
+  SendMessageResponse,
+  SendOptions,
+  ServerStatus,
+  ThreadDetail,
+  ThreadSettingsResponse,
+  ThreadSummary,
+} from "./types";
 
-export const API_BASE = import.meta.env.VITE_CODEX_SERVER_URL ?? "http://127.0.0.1:8765";
+export const API_BASE = import.meta.env.VITE_CODEX_SERVER_URL ?? "http://127.0.0.1:7002";
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -26,6 +35,14 @@ export async function refreshThreads(): Promise<{ ok: boolean; threads: number }
   return requestJson("/api/refresh", { method: "POST", body: "{}" });
 }
 
+export async function startIpcMonitor(): Promise<{ ok: boolean; capturing: boolean }> {
+  return requestJson("/api/ipc-monitor/start", { method: "POST", body: "{}" });
+}
+
+export async function pauseIpcMonitor(): Promise<{ ok: boolean; capturing: boolean }> {
+  return requestJson("/api/ipc-monitor/pause", { method: "POST", body: "{}" });
+}
+
 export async function getThreads(): Promise<ThreadSummary[]> {
   const data = await requestJson<{ threads: ThreadSummary[] }>("/api/threads");
   return data.threads;
@@ -42,6 +59,20 @@ export async function sendMessage(command: SendMessageRequest): Promise<SendMess
       text: command.text,
       confirmDangerFullAccess: command.confirmDangerFullAccess ?? false,
       ...compactOptions(command.options ?? {}),
+    }),
+  });
+}
+
+export async function updateThreadSettings(
+  conversationId: string,
+  options: SendOptions,
+  confirmDangerFullAccess = false,
+): Promise<ThreadSettingsResponse> {
+  return requestJson<ThreadSettingsResponse>(`/api/threads/${encodeURIComponent(conversationId)}/settings`, {
+    method: "POST",
+    body: JSON.stringify({
+      confirmDangerFullAccess,
+      ...options,
     }),
   });
 }
