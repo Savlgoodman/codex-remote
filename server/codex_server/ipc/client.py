@@ -1,0 +1,288 @@
+from __future__ import annotations
+
+import ctypes
+import ctypes.wintypes
+import json
+import os
+import socket
+import struct
+import threading
+import time
+import uuid
+from dataclasses import dataclass, field
+from typing import Any, BinaryIO, Callable
+
+from ..models import IpcConnectionStatus
+
+
+DEFAULT_CLIENT_TYPE = "codex-remote-server"
+
+if os.name == "nt":
+    import msvcrt
+
+    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _kernel32.PeekNamedPipe.argtypes = [
+        ctypes.wintypes.HANDLE,
+        ctypes.c_void_p,
+        ctypes.wintypes.DWORD,
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.wintypes.DWORD),
+        ctypes.c_void_p,
+    ]
+    _kernel32.PeekNamedPipe.restype = ctypes.wintypes.BOOL
+else:
+    msvcrt = None
+    _kernel32 = None
+
+
+def default_ipc_path() -> str:
+    if os.name == "nt":
+        return r"\\.\pipe\codex-ipc"
+    uid = os.getuid() if hasattr(os, "getuid") else "unknown"
+    return os.path.join("/tmp", "codex-ipc", f"ipc-{uid}.sock")
+
+
+def ipc_error_code(exc: BaseException) -> int | None:
+    for attr in ("winerror", "errno"):
+        value = getattr(exc, attr, None)
+        if isinstance(value, int):
+            return value
+    return None
+
+
+def is_ipc_disconnect_error(exc: BaseException) -> bool:
+    if isinstance(exc, (EOFError, ConnectionResetError, BrokenPipeError)):
+        return True
+    return ipc_error_code(exc) in {2, 109, 231, 232, 233}
+
+
+class IpcTransport:
+    def __init__(self, path: str):
+        self.path = path
+        self._file: BinaryIO | None = None
+        self._socket: socket.socket | None = None
+        self._write_lock = threading.Lock()
+
+    def connect(self) -> None:
+        if os.name == "nt":
+            self._file = open(self.path, "r+b", buffering=0)
+            return
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.connect(self.path)
+        self._socket = sock
+
+    def close(self) -> None:
+        try:
+            if self._file is not None:
+                self._file.close()
+        finally:
+            self._file = None
+        try:
+            if self._socket is not None:
+                self._socket.close()
+        finally:
+            self._socket = None
+
+    def bytes_available(self) -> int | None:
+        if os.name != "nt" or self._file is None or _kernel32 is None or msvcrt is None:
+            return None
+        handle = msvcrt.get_osfhandle(self._file.fileno())
+        available = ctypes.wintypes.DWORD(0)
+        ok = _kernel32.PeekNamedPipe(ctypes.wintypes.HANDLE(handle), None, 0, None, ctypes.byref(available), None)
+        if not ok:
+            raise OSError(ctypes.get_last_error(), "PeekNamedPipe failed")
+        return int(available.value)
+
+    def write_message(self, message: dict[str, Any]) -> None:
+        payload = json.dumps(message, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        frame = struct.pack("<I", len(payload)) + payload
+        with self._write_lock:
+            if self._file is not None:
+                self._file.write(frame)
+                return
+            if self._socket is not None:
+                self._socket.sendall(frame)
+                return
+        raise RuntimeError("IPC transport is not connected")
+
+    def read_exact(self, size: int) -> bytes:
+        chunks: list[bytes] = []
+        remaining = size
+        while remaining > 0:
+            if self._file is not None:
+                chunk = self._file.read(remaining)
+            elif self._socket is not None:
+                chunk = self._socket.recv(remaining)
+            else:
+                raise EOFError("IPC transport closed")
+            if not chunk:
+                raise EOFError("IPC channel closed")
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        return b"".join(chunks)
+
+    def read_message(self, timeout: float | None = None) -> dict[str, Any]:
+        if timeout is not None and os.name == "nt" and self._file is not None:
+            deadline = time.monotonic() + timeout
+            while True:
+                available = self.bytes_available()
+                if available is not None and available >= 4:
+                    break
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Timed out waiting for IPC frame")
+                time.sleep(0.05)
+        header = self.read_exact(4)
+        (length,) = struct.unpack("<I", header)
+        payload = self.read_exact(length)
+        return json.loads(payload.decode("utf-8"))
+
+
+@dataclass
+class PendingRequest:
+    method: str
+    event: threading.Event = field(default_factory=threading.Event)
+    response: dict[str, Any] | None = None
+
+
+class IpcClient:
+    def __init__(
+        self,
+        *,
+        path: str | None = None,
+        client_type: str = DEFAULT_CLIENT_TYPE,
+        reconnect_interval: float = 2.0,
+        on_message: Callable[[dict[str, Any]], None] | None = None,
+        on_status: Callable[[IpcConnectionStatus], None] | None = None,
+    ):
+        self.path = path or default_ipc_path()
+        self.client_type = client_type
+        self.reconnect_interval = reconnect_interval
+        self.on_message = on_message
+        self.on_status = on_status
+        self.status = IpcConnectionStatus()
+        self.client_id: str | None = None
+        self._transport = IpcTransport(self.path)
+        self._pending: dict[str, PendingRequest] = {}
+        self._pending_lock = threading.Lock()
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start_background(self) -> None:
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._run_loop, name="codex-remote-ipc", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._transport.close()
+
+    def request(self, method: str, params: dict[str, Any], *, version: int = 1, timeout: float = 45) -> dict[str, Any]:
+        if not self.status.online or not self.client_id:
+            raise RuntimeError("ipc_offline")
+        request_id = str(uuid.uuid4())
+        pending = PendingRequest(method=method)
+        with self._pending_lock:
+            self._pending[request_id] = pending
+        try:
+            self._transport.write_message(
+                {
+                    "type": "request",
+                    "requestId": request_id,
+                    "sourceClientId": self.client_id,
+                    "version": version,
+                    "method": method,
+                    "params": params,
+                    "targetClientId": None,
+                }
+            )
+            if not pending.event.wait(timeout=timeout):
+                raise TimeoutError(f"Timed out waiting for IPC response to {method}")
+            if pending.response is None:
+                raise RuntimeError(f"Missing IPC response to {method}")
+            return pending.response
+        finally:
+            with self._pending_lock:
+                self._pending.pop(request_id, None)
+
+    def _run_loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                self._transport = IpcTransport(self.path)
+                self._transport.connect()
+                self._initialize()
+                self._read_loop()
+            except Exception as exc:
+                self.client_id = None
+                self.status = IpcConnectionStatus(online=False, last_error=str(exc), last_seen_at=time.time())
+                self._emit_status()
+                self._transport.close()
+                if self._stop.wait(self.reconnect_interval):
+                    return
+
+    def _initialize(self) -> None:
+        request_id = str(uuid.uuid4())
+        self._transport.write_message(
+            {
+                "type": "request",
+                "requestId": request_id,
+                "sourceClientId": "initializing-client",
+                "version": 0,
+                "method": "initialize",
+                "params": {"clientType": self.client_type},
+                "targetClientId": None,
+            }
+        )
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            message = self._transport.read_message(timeout=max(0.05, deadline - time.monotonic()))
+            if message.get("type") == "response" and message.get("method") == "initialize":
+                result = message.get("result")
+                self.client_id = result.get("clientId") if isinstance(result, dict) else None
+                self.status = IpcConnectionStatus(
+                    online=True,
+                    client_id=self.client_id,
+                    connected_at=time.time(),
+                    last_seen_at=time.time(),
+                )
+                self._emit_status()
+                return
+            self._handle_message(message)
+        raise TimeoutError("Timed out waiting for IPC initialize response")
+
+    def _read_loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                message = self._transport.read_message(timeout=0.5)
+            except TimeoutError:
+                continue
+            self.status.last_seen_at = time.time()
+            self._handle_message(message)
+
+    def _handle_message(self, message: dict[str, Any]) -> None:
+        message_type = message.get("type")
+        if message_type == "client-discovery-request":
+            self._transport.write_message(
+                {
+                    "type": "client-discovery-response",
+                    "requestId": message.get("requestId"),
+                    "response": {"canHandle": False},
+                }
+            )
+            return
+        if message_type == "response":
+            request_id = str(message.get("requestId") or "")
+            with self._pending_lock:
+                pending = self._pending.get(request_id)
+            if pending is not None:
+                pending.response = message
+                pending.event.set()
+                return
+        if self.on_message is not None:
+            self.on_message(message)
+
+    def _emit_status(self) -> None:
+        if self.on_status is not None:
+            self.on_status(self.status)
+

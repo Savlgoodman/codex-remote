@@ -1,0 +1,2 @@
+"""SSE event modules."""
+

@@ -387,7 +387,13 @@ SSE 的 `event:` 与 JSON `type` 保持一致，方便调试。
 
 ### `thread.snapshot`
 
-用于打开线程时或服务端要求前端重载时发送归一化快照。注意这不是 IPC raw snapshot。
+正常 IPC 回放过程中不通过 SSE 推送 `thread.snapshot`。打开线程时，前端调用
+`GET /api/threads/{conversationId}` 获取归一化 detail；之后 SSE 只发送 compact semantic event。
+当 Last-Event-ID 过旧、revision 断裂或 projection 无法继续应用 patch 时，服务端发送
+`resync.required`，前端再通过 HTTP 重新拉取 detail。
+
+`thread.snapshot` 仅作为兼容/调试事件预留；即使使用，也必须是归一化快照，不能包含 IPC raw
+`conversationState`。
 
 ```json
 {
@@ -419,7 +425,8 @@ SSE 的 `event:` 与 JSON `type` 保持一致，方便调试。
 
 ### `message.upsert`
 
-用于新增消息 bubble，或非文本字段改变。
+仅用于新增消息 bubble。旧消息不会因为 IPC 再次同步、`updatedAt` 刷新、turn 状态改变而重新
+发送整条 `message.upsert`。
 
 ```json
 {
@@ -434,6 +441,25 @@ SSE 的 `event:` 与 JSON `type` 保持一致，方便调试。
       "text": "",
       "status": "streaming",
       "ordinal": 3
+    }
+  }
+}
+```
+
+### `message.patch`
+
+用于已有消息的轻量元数据变化，例如 `status`、`turnId`、`phase`、`ordinal`。payload 不携带完整
+`text`；文本增长使用 `message.append`，非前缀文本变化才使用 `message.replace`。
+
+```json
+{
+  "type": "message.patch",
+  "conversationId": "019e...",
+  "payload": {
+    "messageId": "msg_x",
+    "changes": {
+      "status": "completed",
+      "updatedAt": 1780994930.203
     }
   }
 }
@@ -921,8 +947,10 @@ type ThreadDetailState = {
 事件处理规则：
 
 - `thread.upsert` 更新列表和当前详情 header。
-- `thread.snapshot` 替换该线程 detail。
-- `message.upsert` 插入或更新 message。
+- 打开线程和 `resync.required` 后通过 HTTP detail 初始化/替换该线程 detail。
+- `thread.snapshot` 仅作为兼容/调试事件，收到时替换该线程 detail。
+- `message.upsert` 只插入新 message。
+- `message.patch` 更新已有 message 的轻量元数据，不携带完整文本。
 - `message.append` 只拼接 delta，并校验 `textVersion`。
 - `message.replace` 覆盖文本。
 - `turn.finished` 更新 composer 可用状态。
